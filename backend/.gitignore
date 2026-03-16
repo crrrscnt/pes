@@ -1,0 +1,76 @@
+# Node dependencies
+node_modules/
+
+# Environment files
+.env
+.env.*.local
+.env.local
+
+# Docker
+Dockerfile
+
+# Vite / build output
+dist/
+build/
+out/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+logs/
+
+# Cache
+.cache/
+.vite/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Lock files (uncomment if you prefer to ignore a specific lock)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# JetBrains
+*.iml
+out/
+
+# Misc / temp
+tmp/
+temp/
+*.local
+
+# Build artifacts and static generated files
+*.tgz
+
+# Plotly / data files (ignore large generated data files if any)
+data/
+*.csv
+*.jsonl
+*.ndjson
+
+# Secrets / keys
+*.pem
+*.key
+
+# Optional: dotenv local overrides
+.env.development.local
+.env.production.local
+.env.test.local
