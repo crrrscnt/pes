@@ -116,5 +116,5 @@ export function useJobStatus(jobId: string | null, options: UseJobStatusOptions 
     }
   }, [jobId, isPublic]);
 
-  return { job, partialResults, loading, error };
+  return { job, partialResults, loading, error, setJob };
 }

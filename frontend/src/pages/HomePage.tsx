@@ -16,7 +16,8 @@ export default function HomePage() {
   const [quickTipText, setQuickTipText] = useState<string>('');
 
   // Get recent jobs for sidebar
-  const { jobs: recentJobs } = useJobHistory({ perPage: 5 });
+  const { jobs: recentJobs = [] } = useJobHistory({ perPage: 5 });
+  const safeRecentJobs = recentJobs ?? [];
 
   const isExpertOrAdmin = user && (user.role === 'expert' || user.role === 'admin');
 
@@ -142,7 +143,7 @@ export default function HomePage() {
             onMapperChange={handleMapperChange}
           />
 
-          {user && recentJobs.length > 0 && (
+          {user && safeRecentJobs.length > 0 && (
             <div className="sidebar-recent-scans">
               <h3 className="text-sm font-medium text-gray-900 mb-2">Последние сканы</h3>
               <div className="space-y-2">
@@ -209,18 +210,18 @@ export default function HomePage() {
           {user && (
             <div className="stats-grid">
               <div className="stat-card stat-card-blue">
-                <div className="text-3xl font-bold mb-2">{recentJobs.length}</div>
+                <div className="text-3xl font-bold mb-2">{safeRecentJobs.length}</div>
                 <div className="text-blue-100">Недавние сканы</div>
               </div>
               <div className="stat-card stat-card-green">
                 <div className="text-3xl font-bold mb-2">
-                  {recentJobs.filter(j => j.status === 'completed').length}
+                  {safeRecentJobs.filter(j => j.status === 'completed').length}
                 </div>
                 <div className="text-green-100">Завершено</div>
               </div>
               <div className="stat-card stat-card-purple">
                 <div className="text-3xl font-bold mb-2">
-                  {recentJobs.filter(j => j.status === 'running').length}
+                  {safeRecentJobs.filter(j => j.status === 'running').length}
                 </div>
                 <div className="text-purple-100">В процессе</div>
               </div>

@@ -1,5 +1,8 @@
+import { useState, type ChangeEvent } from 'react';
 import { useJobStatus } from '../hooks/useJobStatus';
-import { Download, Clock, CheckCircle, XCircle, AlertCircle,  RefreshCw } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
+import { jobsApi } from '../api/endpoints';
+import { Download, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
 interface JobDetailsProps {
   jobId: string | null;
@@ -7,7 +10,96 @@ interface JobDetailsProps {
 }
 
 export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps) {
-  const { job, loading, error } = useJobStatus(jobId, { isPublic });
+  const { user } = useAuth();
+  const { job, loading, error, setJob } = useJobStatus(jobId, { isPublic });
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+
+  const isOwner = Boolean(user && job?.user_id === user.id);
+  const canUploadCover = isOwner && job?.status === 'completed';
+
+  const handleCoverChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setUploadError(null);
+    setUploadSuccess(null);
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setCoverFile(null);
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError('Файл слишком большой. Максимум 2 МБ.');
+      setCoverFile(null);
+      return;
+    }
+
+    setCoverFile(file);
+  };
+
+  const resizeImageFile = async (file: File, maxWidth = 1200, maxHeight = 800): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      image.onload = async () => {
+        URL.revokeObjectURL(objectUrl);
+        const ratio = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+        const width = Math.round(image.width * ratio);
+        const height = Math.round(image.height * ratio);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context unavailable'));
+          return;
+        }
+        ctx.drawImage(image, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Image resize failed'));
+            return;
+          }
+
+          resolve(new File([blob], file.name, { type: file.type }));
+        }, file.type || 'image/png');
+      };
+
+      image.onerror = (e) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Failed to load image for resizing'));
+      };
+
+      image.src = objectUrl;
+    });
+  };
+
+  const handleUploadCover = async () => {
+    if (!job || !coverFile) return;
+
+    setUploadError(null);
+    setUploadSuccess(null);
+    setUploading(true);
+
+    try {
+      const resizedFile = await resizeImageFile(coverFile, 1200, 800);
+      const formData = new FormData();
+      formData.append('image', resizedFile);
+      const response = await jobsApi.uploadPreview(job.id, formData);
+      setJob(response.data);
+      setCoverFile(null);
+      setUploadSuccess('Обложка успешно загружена.');
+    } catch (err: any) {
+      console.error(err);
+      setUploadError(err?.response?.data?.detail || err?.message || 'Не удалось загрузить обложку.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (!jobId) return (
     <div className="text-center py-8">
@@ -103,6 +195,54 @@ export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps)
         </div>
       </div>
 
+      {/* ── Обложка задания ── */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-medium text-gray-900 mb-3">Обложка</h3>
+
+        {job.preview_image ? (
+          <div className="space-y-3">
+            <img
+              src={job.preview_image}
+              alt="Job cover"
+              className="w-full rounded-lg object-contain max-h-80"
+              style={{ maxWidth: '100%', maxHeight: '320px' }}
+            />
+            <p className="text-sm text-gray-600">Эта обложка отображается в галерее и карточках задания.</p>
+          </div>
+        ) : (
+          <div className="text-sm text-gray-500">
+            <p>Пока что обложка не загружена.</p>
+            <p className="mt-1">Загрузите изображение после завершения расчёта, чтобы оно появилось в галерее.</p>
+          </div>
+        )}
+
+        {canUploadCover && (
+          <div className="mt-4 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Выберите файл обложки
+              </label>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleCoverChange(e)}
+                className="w-full text-sm text-gray-700"
+              />
+            </div>
+            {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
+            {uploadSuccess && <p className="text-sm text-green-600">{uploadSuccess}</p>}
+            <button
+              type="button"
+              onClick={handleUploadCover}
+              disabled={!coverFile || uploading}
+              className="btn btn-primary w-full"
+            >
+              {uploading ? 'Загружаем...' : 'Загрузить обложку'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* ── Статус ── */}
       <div className="bg-gray-50 rounded-lg p-4">
         <h3 className="font-medium text-gray-900 mb-3">Статус</h3>
@@ -146,98 +286,6 @@ export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps)
           </div>
         )}
       </div>
-
-      {/* ── LinUCB: многораундовая история ── */}
-      {job.use_linucb && job.status !== 'queued' && (
-        <div className="bg-violet-50 border border-violet-200 rounded-lg p-4">
-          <h3 className="font-medium text-violet-900 mb-3 flex items-center gap-2">
-            LinUCB — авто-выбор метода
-          </h3>
-
-          {/* Текущий выбор */}
-          {job.mapper && job.mapper !== 'linucb_pending' ? (
-            <div className="space-y-1 text-sm mb-3">
-              <div className="flex justify-between">
-                <span className="text-violet-700">Финальный маппер:</span>
-                <span className="font-medium text-violet-900">{job.mapper}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-violet-700">Финальный оптимизатор:</span>
-                <span className="font-medium text-violet-900">{job.optimizer}</span>
-              </div>
-              {job.linucb_arm_id && (
-                <div className="flex justify-between">
-                  <span className="text-violet-700">Рука бандита:</span>
-                  <span className="font-mono text-xs text-violet-800">{job.linucb_arm_id}</span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-violet-600 text-xs mb-3">⏳ LinUCB выбирает метод…</p>
-          )}
-
-          {/* История раундов */}
-          {roundHistory && roundHistory.length > 0 && (
-            <div className="mt-2">
-              <p className="text-xs font-medium text-violet-800 mb-2 flex items-center gap-1">
-                <RefreshCw className="w-3 h-3" />
-                Раунды ({roundsDone} из 3)
-              </p>
-              <div className="space-y-2">
-                {roundHistory.map((r: any) => {
-                  const errMHa = r.avg_error_ha != null
-                    ? (r.avg_error_ha * 1000).toFixed(2) : '—';
-                  const isGood = r.avg_error_ha != null && r.avg_error_ha < 0.005;
-                  return (
-                    <div key={r.round}
-                         className="bg-white rounded border border-violet-100 p-2 text-xs">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-medium text-violet-900">
-                          Раунд {r.round}
-                        </span>
-                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                          isGood
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {isGood ? '✓ OK' : '↻ улучшаем'}
-                        </span>
-                      </div>
-                      <div className="text-gray-600 space-y-0.5">
-                        <div className="flex justify-between">
-                          <span>{r.mapper} / {r.optimizer}</span>
-                          <span className={isGood ? 'text-green-600 font-medium' : 'text-orange-600'}>
-                            Δ={errMHa} мHa
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-gray-400">
-                          <span>Точек: {r.n_points}</span>
-                          <span>r={r.reward}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Финальная ошибка */}
-              {finalErrHa != null && job.status === 'completed' && (
-                <div className="mt-2 pt-2 border-t border-violet-200">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-violet-700 font-medium">Итоговая ошибка:</span>
-                    <span className={`font-bold ${
-                      finalErrHa < 0.005 ? 'text-green-600' : 'text-orange-600'
-                    }`}>
-                      {(finalErrHa * 1000).toFixed(3)} мHa
-                      {finalErrHa < 0.005 ? ' ✓' : ''}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── Сводка результатов ── */}
       {job.status === 'completed' && meta && (

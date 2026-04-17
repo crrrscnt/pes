@@ -27,7 +27,7 @@ export function useJobHistory(params: UseJobHistoryParams = {}) {
         molecule_filter: params.moleculeFilter,
       });
       
-      setJobs(response.data.jobs);
+      setJobs(response.data.jobs ?? []);
       setTotal(response.data.total);
     } catch (err: any) {
       setError(err.message);

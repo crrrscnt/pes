@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from rq import Queue
@@ -12,6 +12,7 @@ from ..workers.pes_worker import run_pes_scan
 import uuid
 import json
 import logging
+import base64
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -76,7 +77,7 @@ def validate_job_parameters(
             )
 
 
-@router.post("/", response_model=JobResponse)
+@router.post("", response_model=JobResponse)
 async def create_job(
         job_data: JobCreate,
         db: Session = Depends(get_db),
@@ -150,7 +151,7 @@ async def get_job(
     return JobResponse.model_validate(job)
 
 
-@router.get("/", response_model=JobListResponse)
+@router.get("", response_model=JobListResponse)
 async def list_jobs(
         page: int = Query(1, ge=1),
         per_page: int = Query(10, ge=1, le=100),
@@ -186,6 +187,56 @@ async def list_jobs(
         page=page,
         per_page=per_page
     )
+
+
+@router.post("/{job_id}/preview", response_model=JobResponse)
+async def upload_job_preview(
+        job_id: str,
+        image: UploadFile = File(...),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_user)
+):
+    """Upload a custom cover image for a completed job."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+
+    if current_user.role != "admin" and job.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cover image can only be uploaded for completed jobs"
+        )
+
+    allowed_types = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
+    if image.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported image type. Use PNG, JPEG, or WEBP."
+        )
+
+    content = await image.read()
+    if len(content) > 2 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image size must be 2MB or less"
+        )
+
+    encoded = base64.b64encode(content).decode('utf-8')
+    job.preview_image = f"data:{image.content_type};base64,{encoded}"
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    return JobResponse.model_validate(job)
 
 
 @router.get("/{job_id}/stream")

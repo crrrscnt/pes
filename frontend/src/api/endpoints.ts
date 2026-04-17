@@ -36,6 +36,9 @@ export const jobsApi = {
   get: (jobId: string) =>
     apiClient.get<Job>(`/api/jobs/${jobId}`),
 
+  uploadPreview: (jobId: string, formData: FormData) =>
+    apiClient.post<Job>(`/api/jobs/${jobId}/preview`, formData),
+
   list: (params?: {
     page?: number;
     per_page?: number;

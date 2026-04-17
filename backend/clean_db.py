@@ -5,7 +5,7 @@ import datetime
 engine = create_engine(settings.database_url)
 
 with engine.connect() as conn:
-    # Показать статистику до очистки
+    # Статистика до очистки
     result = conn.execute(text("""
         SELECT status, count(*),
                min(created_at) as oldest,
@@ -17,7 +17,6 @@ with engine.connect() as conn:
     for row in result:
         print(f"{row.status}: {row.count} jobs ({row.oldest} - {row.newest})")
 
-    # Спросить, что удалять
     print("\nВыберите действие:")
     print("1. Удалить все FAILED")
     print("2. Удалить FAILED старше 7 дней")
