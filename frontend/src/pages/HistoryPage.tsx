@@ -190,7 +190,7 @@ export default function HistoryPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center gap-2">
                           <Link
-                            to={`/?job=${job.id}`}
+                            to={`/scan?job=${job.id}`}
                             className="text-blue-600 hover:text-blue-900 flex items-center gap-1"
                           >
                             <Eye className="w-4 h-4" />
