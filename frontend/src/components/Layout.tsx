@@ -1,8 +1,9 @@
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import type { ReactNode } from 'react';
 import { LogOut, History, Settings, Home, Grid } from 'lucide-react';
 
-export default function Layout() {
+export default function Layout({ children }: { children?: ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
 
@@ -13,22 +14,29 @@ export default function Layout() {
       console.error('Не удалось выйти', error);
     }
   };
+  // str css-classes для нав ссылки в зависимости от флага active
+  const navLinkClass = (active: boolean) =>
+    [
+      'header-link inline-flex items-center gap-2 rounded-lg px-3 py-2 font-medium transition-all',
+      active
+        ? 'bg-[rgba(37,99,235,0.08)] text-[var(--primary)]'
+        : 'text-[var(--text-muted)] hover:bg-[rgba(18,24,40,0.04)] hover:text-[var(--text)]',
+    ].join(' ');
 
+
+ 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="app-shell min-h-screen bg-[var(--bg)] text-[var(--text)]">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="top-0 z-50 border-b border-[rgba(18,24,40,0.08)] bg-white/95 backdrop-blur">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link
-                to={user ? "/scan" : "/"}
-                className="flex items-center gap-2"
-              >
-                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <Link to="/" className="flex items-center gap-3 no-underline">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-sm">
                   <span className="text-white font-bold text-sm">PES</span>
                 </div>
-                <span className="text-xl font-bold text-gray-900">PES Scan</span>
+                <span className="text-xl font-bold text-gray-900">Главная</span>
               </Link>
             </div>
 
@@ -36,13 +44,14 @@ export default function Layout() {
               {user && (
                 <Link
                   to="/scan"
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition ${location.pathname === '/scan'
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition ${
+                    location.pathname === '/scan'
                     ? 'bg-blue-50 text-blue-700'
                     : 'text-gray-600 hover:bg-gray-100'
-                    }`}
+                    } no-underline`}
                 >
                   <Home className="w-4 h-4" />
-                  Главная
+                  Расчет
                 </Link>
               )}
 
@@ -112,13 +121,13 @@ export default function Layout() {
                   <div className="flex items-center gap-2">
                     <Link
                       to="/login"
-                      className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                      className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition no-underline"
                     >
                       Войти
                     </Link>
                     <Link
                       to="/register"
-                      className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                      className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition no-underline"
                     >
                       Зарегистрироваться
                     </Link>
@@ -132,7 +141,7 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="container mx-auto px-4 py-6">
-        <Outlet />
+        {children ?? <Outlet />}
       </main>
     </div>
   );

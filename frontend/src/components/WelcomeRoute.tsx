@@ -17,9 +17,8 @@ export default function WelcomeRoute({ children }: WelcomeRouteProps) {
     );
   }
 
-  // If user is logged in, redirect to /scan
   if (user) {
-    return <Navigate to="/scan" replace />;
+    return <Navigate to="/" replace />;
   }
 
   // Otherwise show welcome page

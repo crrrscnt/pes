@@ -10,23 +10,37 @@ import AdminPage from './pages/AdminPage';
 import GalleryPage from './pages/GalleryPage';
 import GalleryDetailPage from './pages/GalleryDetailPage';
 import ProtectedRoute from './components/ProtectedRoute';
-import WelcomeRoute from './components/WelcomeRoute';
+import { useAuth } from './hooks/useAuth';
+
+function AuthHome() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="spinner"></div>
+        <span className="ml-2 text-gray-600">Загрузка...</span>
+      </div>
+    );
+  }
+
+  if (!user) return <WelcomePage />;
+
+  // If user is authenticated, show Layout with HomePage inside
+  return (
+    <Layout>
+      <WelcomePage />
+    </Layout>
+  );
+}
 
 function App() {
   return (
     <AuthProvider>
       <Router>
         <Routes>
-          {/* Welcome screen - redirects to /scan if logged in */}
-          <Route
-            path="/"
-            element={
-              <WelcomeRoute>
-                <WelcomePage />
-              </WelcomeRoute>
-            }
-          />
-
+          <Route path="/" element={<AuthHome />} />
+          {/* <Route path="/" element={<WelcomePage />} /> */}
           {/* Auth routes - use Layout */}
           <Route element={<Layout />}>
             <Route path="/login" element={<LoginPage />} />

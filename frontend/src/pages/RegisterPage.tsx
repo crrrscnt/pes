@@ -36,7 +36,7 @@ export default function RegisterPage() {
 
     try {
       await registerUser(data.email, data.password);
-      navigate('/login');
+      navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Ошибка регистрации');
     } finally {

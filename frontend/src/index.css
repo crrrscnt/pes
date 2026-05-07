@@ -1,53 +1,93 @@
-:root {
+  /* :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  /* font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; */
+  /* line-height: 1.5;
+  font-weight: 400; */
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  /* color: #111827; */
+  /* background: #f7f8fc; */
 
-  font-synthesis: none;
+  /* color-scheme: light; */
+  /* color: rgba(255, 255, 255, 0.87); */
+  /* background-color: #242424; */
+
+/*  font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-#root {
-  width: 100%;
-  height: 100vh;
-  margin: 0 auto;
-  text-align: left;
-}
-
-@media (prefers-color-scheme: light) {
+  --primary: #2457d6;
+  --accent: #7c3aed;
+  --bg: #f7f8fc;
+  } */
   :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-}
+    --primary: #2457d6;
+    --accent: #7c3aed;
+    --bg: #f7f8fc;
+    --text: #0f1724; /* dark text for good contrast */
+    --text-muted: #4b5563;
+    --card-shadow: 0 6px 18px rgba(18,24,40,0.06);
+    --card-shadow-hover: 0 12px 28px rgba(18,24,40,0.12);
+    --border-subtle: rgba(18,24,40,0.08);
 
-/* ===== SIDEBAR STYLES ===== */
-.sidebar {
-  position: fixed;
+    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #root {
   left: 0;
   top: 80px;
   /* Adjust based on your header height */
-  width: 20rem;
+  /* width: 20rem; */
   /* 320px */
+
+  /* Utility to remove underlines in header links */
+  .no-underline { text-decoration: none; }
+
+  /* Sidebar adjustments */
+  .sidebar { background-color: #f8fafc; border-right: 1px solid var(--border-subtle); }
+  @media (min-width: 1024px) {
+    .sidebar { width: 16rem; /* reduced ~20% from 20rem */ }
+    .main-content { margin-left: 16rem; }
+  }
+
+  /* Secondary filters hidden on mobile */
+  @media (max-width: 768px) {
+    .secondary-filters { display: none; }
+  }
+
+  /* Headings scale */
+  h1 { font-size: 32px; line-height: 1.25; }
+  h2 { font-size: 24px; line-height: 1.3; }
+  h3 { font-size: 18px; line-height: 1.4; }
+
+  /* Card defaults */
+  .card, .bg-white.rounded-lg.shadow { border-radius: 10px; box-shadow: var(--card-shadow); }
+  .card:hover, .bg-white.rounded-lg.shadow:hover { box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+
+  /* Buttons */
+  .btn { min-height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content:center; padding: 0.5rem 1rem; font-weight:600; }
+  .btn:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+  .btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(18,24,40,0.12); }
+  .btn-secondary { opacity: 0.9; }
+
+  /* Search clear button visually less prominent */
+  .search-clear { opacity: 0.85; background: transparent; border: 1px solid rgba(0,0,0,0.04); }
+
   height: calc(100vh - 80px);
   background-color: #ffffff;
   border-right: 1px solid #e5e7eb;

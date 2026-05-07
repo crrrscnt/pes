@@ -136,7 +136,7 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
 
       const layout = {
         title: {
-          text: `${job.molecule} Dissociation Curve (PES Scan)${!isCompleted ? ' (In Progress)' : ''}`,
+          text: `${job.molecule} Кривая диссоциации (ПЭП-скан)${!isCompleted ? ' (В процессе)' : ''}`,
           font: { size: 16 }
         },
         xaxis: {

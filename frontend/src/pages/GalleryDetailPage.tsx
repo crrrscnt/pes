@@ -48,7 +48,7 @@ export default function GalleryDetailPage() {
                     Назад к галерее
                 </Link>
                 <h1 className="text-2xl font-bold text-gray-900">
-                    {job.molecule} PES Scan
+                    {job.molecule} ПЭП-скан
                 </h1>
             </div>
 

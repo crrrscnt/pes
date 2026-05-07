@@ -243,7 +243,7 @@ export default function MoleculeForm({
         {loading ? (
           <><div className="spinner" /> Запуск сканирования...</>
         ) : (
-          useLinUCB ? 'Умный PES-скан' : 'PES сканирование'
+          useLinUCB ? 'Умный ПЭП-скан' : 'ПЭП сканирование'
         )}
       </button>
 

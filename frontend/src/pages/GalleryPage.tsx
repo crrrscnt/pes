@@ -1,22 +1,23 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { publicApi } from '../api/endpoints';
+import type { JobListResponse } from '../types';
 import JobCard from '../components/JobCard';
-import { Filter, Grid } from 'lucide-react';
+import { Search, Grid } from 'lucide-react';
 
 export default function GalleryPage() {
     const [page, setPage] = useState(1);
-    const [moleculeFilter, setMoleculeFilter] = useState('');
-    const [sortBy, setSortBy] = useState<'date' | 'oldest'>('date');
+    const [searchInput, setSearchInput] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
 
-    const { data, isLoading, error } = useQuery({
-        queryKey: ['public-jobs', page, moleculeFilter, sortBy],
+    const { data, isLoading, isFetching, error } = useQuery<JobListResponse, Error>({
+        queryKey: ['public-jobs', page, searchQuery],
         queryFn: async () => {
             const response = await publicApi.listJobs({
                 page,
                 per_page: 12,
-                molecule_filter: moleculeFilter || undefined,
-                sort_by: sortBy,
+                molecule_filter: searchQuery || undefined,
+                sort_by: 'date',
             });
             return response.data;
         },
@@ -47,78 +48,64 @@ export default function GalleryPage() {
             <div className="mb-6">
                 <h1 className="text-2xl font-bold text-gray-900 mb-4">Галерея</h1>
                 <p className="text-gray-600">
-                    Просмотр завершенных сканирований PES от сообщества
+                    Просмотр завершенных сканирований ПЭП от сообщества
                 </p>
             </div>
 
-            {/* Filters */}
             <div className="bg-white rounded-lg shadow p-4 mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                    <Filter className="w-5 h-5 text-gray-600" />
-                    <span className="font-medium text-gray-700">Фильтры</span>
+                <div className="flex items-center gap-2 text-gray-700 font-medium mb-4">
+                    <Search className="w-5 h-5" />
+                    Поиск по галерее
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Molecule Filter */}
-                    <div>
-                        <label htmlFor="molecule-filter" className="form-label">
-                            Молекула
-                        </label>
-                        <select
-                            id="molecule-filter"
-                            value={moleculeFilter}
-                            onChange={(e) => {
-                                setMoleculeFilter(e.target.value);
+                <div className="grid gap-3">
+                    <input
+                        type="text"
+                        id="search-query"
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                setSearchQuery(searchInput.trim());
                                 setPage(1);
-                            }}
-                            className="form-select"
-                        >
-                            <option value="">Все молекулы</option>
-                            <option value="H2">H₂</option>
-                            <option value="LiH">LiH</option>
-                            <option value="BH">BH</option>
-                            <option value="BeH">BeH</option>
-                            <option value="CH">CH</option>
-                            <option value="NH">NH</option>
-                            <option value="OH">OH</option>
-                            <option value="FH">FH</option>
-                        </select>
-                    </div>
+                            }
+                        }}
+                        className="form-input w-full"
+                        placeholder="Введите молекулу, ID задания или часть названия"
+                    />
 
-                    {/* Sort By */}
-                    <div>
-                        <label htmlFor="sort-by" className="form-label">
-                            Сортировка
-                        </label>
-                        <select
-                            id="sort-by"
-                            value={sortBy}
-                            onChange={(e) => {
-                                setSortBy(e.target.value as 'date' | 'oldest');
-                                setPage(1);
-                            }}
-                            className="form-select"
-                        >
-                            <option value="date">Сначала новые</option>
-                            <option value="oldest">Сначала старые</option>
-                        </select>
-                    </div>
-
-                    {/* Clear Filters */}
-                    <div className="flex items-end">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
                         <button
                             onClick={() => {
-                                setMoleculeFilter('');
-                                setSortBy('date');
+                                setSearchQuery(searchInput.trim());
                                 setPage(1);
                             }}
-                            className="btn btn-secondary w-full"
+                            className="btn btn-primary w-full sm:w-auto"
+                            type="button"
                         >
-                            Сбросить
+                            Найти
+                        </button>
+                        <button
+                            onClick={() => {
+                                setSearchInput('');
+                                setSearchQuery('');
+                                setPage(1);
+                            }}
+                            className="btn btn-secondary w-full sm:w-auto"
+                            type="button"
+                        >
+                            Очистить поиск
                         </button>
                     </div>
                 </div>
             </div>
+
+            {isFetching && !isLoading && (
+                <div className="flex items-center gap-2 text-gray-600 mb-4">
+                    <div className="spinner"></div>
+                    <span>Обновляем результаты...</span>
+                </div>
+            )}
 
             {/* Grid of Cards */}
             {data && data.jobs.length > 0 ? (
@@ -173,7 +160,7 @@ export default function GalleryPage() {
                 <div className="text-center py-12">
                     <Grid className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">Результаты не найдены</h3>
-                    <p className="text-gray-600">Попробуйте изменить фильтры</p>
+                    <p className="text-gray-600">Попробуйте другое ключевое слово или очистите поиск</p>
                 </div>
             )}
         </div>

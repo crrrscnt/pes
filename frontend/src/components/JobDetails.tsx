@@ -104,7 +104,7 @@ export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps)
   if (!jobId) return (
     <div className="text-center py-8">
       <p className="text-gray-500">Задание не выбрано</p>
-      <p className="text-sm text-gray-400 mt-1">Начните сканирование PES, чтобы увидеть результаты</p>
+      <p className="text-sm text-gray-400 mt-1">Начните сканирование ПЭП, чтобы увидеть результаты</p>
     </div>
   );
 
