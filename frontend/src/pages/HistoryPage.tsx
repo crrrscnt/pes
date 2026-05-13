@@ -12,7 +12,6 @@ export default function HistoryPage() {
     page,
     perPage: 10,
     statusFilter: statusFilter || undefined,
-    moleculeFilter: moleculeFilter || undefined,
   });
 
   const totalPages = Math.ceil(total / 10);
@@ -53,7 +52,7 @@ export default function HistoryPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">История заданий</h1>
-        <Link to="/" className="btn btn-primary">
+        <Link to="/scan" className="btn btn-primary">
           Новый скан
         </Link>
       </div>
@@ -76,28 +75,6 @@ export default function HistoryPage() {
               <option value="running">Выполняется</option>
               <option value="completed">Завершено</option>
               <option value="failed">Ошибка</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="molecule-filter" className="form-label">
-              Молекула
-            </label>
-            <select
-              id="molecule-filter"
-              value={moleculeFilter}
-              onChange={(e) => setMoleculeFilter(e.target.value)}
-              className="form-select"
-            >
-              <option value="">Все молекулы</option>
-              <option value="H2">H₂</option>
-              <option value="LiH">LiH</option>
-              <option value="BH">BH</option>
-              <option value="BeH">BeH</option>
-              <option value="CH">CH</option>
-              <option value="NH">NH</option>
-              <option value="OH">OH</option>
-              <option value="FH">FH</option>
             </select>
           </div>
 
@@ -226,7 +203,7 @@ export default function HistoryPage() {
             {totalPages > 1 && (
               <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
                 <div className="flex-1 flex justify-between sm:hidden">
-                  <button
+                  {/* <button
                     onClick={() => setPage(Math.max(1, page - 1))}
                     disabled={page === 1}
                     className="btn btn-secondary"
@@ -239,7 +216,7 @@ export default function HistoryPage() {
                     className="btn btn-secondary"
                   >
                     Следующая
-                  </button>
+                  </button> */}
                 </div>
                 <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
                   <div>

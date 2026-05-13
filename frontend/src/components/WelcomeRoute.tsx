@@ -21,6 +21,5 @@ export default function WelcomeRoute({ children }: WelcomeRouteProps) {
     return <Navigate to="/" replace />;
   }
 
-  // Otherwise show welcome page
   return <>{children}</>;
 }

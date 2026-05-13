@@ -107,8 +107,3 @@ export const adminApi = {
     apiClient.post<{ message: string }>(`/api/admin/expert-requests/${userId}`, { action }),
 };
 
-// LinUCB bandit state (admin only)
-export const linucbApi = {
-  getArmStats: () => apiClient.get('/api/linucb/arms'),
-  reset: () => apiClient.post('/api/linucb/reset', {}),
-};

@@ -1,7 +1,7 @@
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import type { ReactNode } from 'react';
-import { LogOut, History, Settings, Home, Grid } from 'lucide-react';
+import { LogOut, History, Settings, Calculator, Grid } from 'lucide-react';
 
 export default function Layout({ children }: { children?: ReactNode }) {
   const { user, logout } = useAuth();
@@ -50,7 +50,7 @@ export default function Layout({ children }: { children?: ReactNode }) {
                     : 'text-gray-600 hover:bg-gray-100'
                     } no-underline`}
                 >
-                  <Home className="w-4 h-4" />
+                  <Calculator className="w-4 h-4" />
                   Расчет
                 </Link>
               )}

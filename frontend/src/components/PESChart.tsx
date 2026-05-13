@@ -1,39 +1,21 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useMemo, useRef, useCallback } from 'react';
 import Plot from 'react-plotly.js';
+import type { Layout } from 'plotly.js';
 import { useJobStatus } from '../hooks/useJobStatus';
-import type { PESResults } from '../types';
 
 interface PESChartProps {
   jobId: string | null;
-  isPublic?: boolean; // Флаг для публичного режима
+  isPublic?: boolean;
 }
-
-const MOLECULE_RANGES = {
-  H2: [0.4, 1.2],
-  LiH: [1.2, 2.0],
-  BH: [1.0, 1.8],
-  BeH: [1.0, 1.8],
-  CH: [0.6, 1.4],
-  NH: [0.6, 1.4],
-  OH: [0.6, 1.4],
-  FH: [0.6, 1.4],
-} as const;
 
 export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
   const { job, partialResults, loading, error } = useJobStatus(jobId, { isPublic });
-  const [plotData, setPlotData] = useState<any>(null);
   const plotRef = useRef<any>(null);
 
-  // Сброс plotData при смене jobId
-  useEffect(() => {
-    setPlotData(null);
-  }, [jobId]);
-
-  // Объединить финальные + промежуточные результаты
+  // Объединяем финальные + промежуточные результаты
   const combinedResults = useMemo(() => {
     const results: Record<string, any> = {};
 
-    // Добавить промежуточные результаты (только для приватного режима)
     if (!isPublic) {
       partialResults.forEach(pr => {
         results[pr.distance.toString()] = {
@@ -44,7 +26,6 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
       });
     }
 
-    // Перезаписать финальными результатами (если есть)
     if (job?.results) {
       Object.entries(job.results).forEach(([dist, result]) => {
         results[dist] = result;
@@ -54,139 +35,164 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
     return results;
   }, [job?.results, partialResults, isPublic]);
 
-  useEffect(() => {
+  // Вычисляем конфигурацию графика синхронно через useMemo
+  const plotConfig = useMemo(() => {
     const hasData = Object.keys(combinedResults).length > 0;
     const isCompleted = job?.status === 'completed';
 
-    if (hasData && job?.molecule) {
-      // Extract data points
-      const distances: number[] = [];
-      const vqeEnergies: number[] = [];
-      const numpyEnergies: number[] = [];
-      const errors: string[] = [];
-
-      Object.entries(combinedResults).forEach(([distanceStr, result]) => {
-        const distance = parseFloat(distanceStr);
-        if ('error' in result) {
-          errors.push(`Error at ${distance} Å: ${result.error}`);
-        } else {
-          distances.push(distance);
-          vqeEnergies.push(result.vqe);
-          numpyEnergies.push(result.numpy);
-        }
-      });
-
-      if (distances.length === 0) {
-        setPlotData({
-          data: [],
-          layout: {
-            title: 'No valid data points',
-            xaxis: { title: 'Bond Length (Å)' },
-            yaxis: { title: 'Total Energy (Hartree)' },
-          }
-        });
-        return;
-      }
-
-      // Sort by distance
-      const sortedIndices = distances.map((_, i) => i).sort((a, b) => distances[a] - distances[b]);
-      const sortedDistances = sortedIndices.map(i => distances[i]);
-      const sortedVQE = sortedIndices.map(i => vqeEnergies[i]);
-      const sortedNumPy = sortedIndices.map(i => numpyEnergies[i]);
-
-      // Find minimum
-      const minIndex = sortedVQE.indexOf(Math.min(...sortedVQE));
-      const minDistance = sortedDistances[minIndex];
-
-      const data = [
-        {
-          x: sortedDistances,
-          y: sortedVQE,
-          type: 'scatter',
-          mode: 'lines+markers',
-          name: 'VQE',
-          line: { color: '#3b82f6', width: 2 },
-          marker: { size: 6, symbol: 'x' },
-        },
-        {
-          x: sortedDistances,
-          y: sortedNumPy,
-          type: 'scatter',
-          mode: 'lines+markers',
-          name: 'NumPy Minimum Eigensolver',
-          line: { color: '#d19404', width: 2, dash: 'dot' },
-          marker: { size: 4 },
-        },
-      ];
-
-      // Добавить линию минимума только если расчет завершен
-      if (isCompleted) {
-        data.push({
-          x: [minDistance, minDistance],
-          y: [Math.min(...sortedVQE), Math.max(...sortedVQE)],
-          type: 'scatter',
-          mode: 'lines',
-          name: 'Minimum',
-          line: { color: '#6b7280', width: 2, dash: 'dash' },
-          showlegend: false,
-        } as any);
-      }
-
-      const moleculeRange = MOLECULE_RANGES[job.molecule as keyof typeof MOLECULE_RANGES];
-
-      const layout = {
-        title: {
-          text: `${job.molecule} Кривая диссоциации (ПЭП-скан)${!isCompleted ? ' (В процессе)' : ''}`,
-          font: { size: 16 }
-        },
-        xaxis: {
-          title: 'Bond Length (Å)',
-          titlefont: { size: 14 },
-          tickfont: { size: 12 },
-          gridcolor: '#e5e7eb',
-          range: moleculeRange,
-        },
-        yaxis: {
-          title: 'Total Energy (Hartree)',
-          titlefont: { size: 14 },
-          tickfont: { size: 12 },
-          gridcolor: '#e5e7eb',
-        },
-        plot_bgcolor: '#ffffff',
-        paper_bgcolor: '#ffffff',
-        margin: { t: 60, r: 40, b: 60, l: 60 },
-        hovermode: 'closest',
-        showlegend: true,
-        legend: {
-          x: 0.02,
-          y: 0.98,
-          bgcolor: 'rgba(255,255,255,0.8)',
-          bordercolor: '#e5e7eb',
-          borderwidth: 1
-        },
-        annotations: isCompleted ? [{
-          x: minDistance,
-          y: Math.min(...sortedVQE),
-          text: `Min: ${minDistance.toFixed(4)} Å`,
-          showarrow: true,
-          arrowhead: 2,
-          ax: 0,
-          ay: -40,
-          bgcolor: 'rgba(255,255,255,0.9)',
-          bordercolor: '#6b7280',
-          borderwidth: 1,
-        }] : []
-      };
-
-      setPlotData({ data, layout });
+    if (!hasData || !job?.molecule) {
+      return null;
     }
-  }, [combinedResults, job, isPublic]);
+
+    const distances: number[] = [];
+    const vqeEnergies: number[] = [];
+    const numpyEnergies: number[] = [];
+
+    Object.entries(combinedResults).forEach(([distanceStr, result]) => {
+      const distance = parseFloat(distanceStr);
+      if ('error' in result) return;
+      distances.push(distance);
+      vqeEnergies.push(result.vqe);
+      numpyEnergies.push(result.numpy);
+    });
+
+    if (distances.length === 0) {
+      return {
+        data: [],
+        layout: {
+          title: { text: 'Нет валидных точек данных' },
+          xaxis: { title: 'Длина связи (Å)' },
+          yaxis: { title: 'Полная энергия (Hartree)' },
+        } as Partial<Layout>,
+      };
+    }
+
+    const sortedIndices = distances.map((_, i) => i).sort((a, b) => distances[a] - distances[b]);
+    const sortedDistances = sortedIndices.map(i => distances[i]);
+    const sortedVQE = sortedIndices.map(i => vqeEnergies[i]);
+    const sortedNumPy = sortedIndices.map(i => numpyEnergies[i]);
+
+    const minIndex = sortedVQE.indexOf(Math.min(...sortedVQE));
+    const minDistance = sortedDistances[minIndex];
+
+    const minDist = Math.min(...sortedDistances);
+    const maxDist = Math.max(...sortedDistances);
+    const padding = (maxDist - minDist) * 0.1 || 0.1;
+
+    const data: any[] = [
+      {
+        x: sortedDistances,
+        y: sortedVQE,
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'VQE',
+        line: { color: '#3b82f6', width: 2, shape: 'spline' },
+        marker: { size: 6, symbol: 'x' },
+      },
+      {
+        x: sortedDistances,
+        y: sortedNumPy,
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'NumPy Minimum Eigensolver',
+        line: { color: '#d19404', width: 2, dash: 'dot', shape: 'spline' },
+        marker: { size: 4 },
+      },
+    ];
+
+    if (isCompleted) {
+      data.push({
+        x: [minDistance, minDistance],
+        y: [Math.min(...sortedVQE), Math.max(...sortedVQE)],
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Minimum',
+        line: { color: '#6b7280', width: 2, dash: 'dash' },
+        showlegend: false,
+      });
+    }
+
+    // Типизируем layout как Partial<Layout> чтобы избежать ошибок TS
+    const layout: Partial<Layout> = {
+      title: {
+        text: `${job.molecule} Кривая диссоциации (ПЭП-скан)${!isCompleted ? ' (В процессе)' : ''}`,
+        font: { size: 16, color: 'var(--text-main)' },
+      },
+      xaxis: {
+        title: { text: 'Длина связи (Å)', font: { size: 14 } },
+        tickfont: { size: 12 },
+        gridcolor: 'var(--gray-200)',
+        range: [minDist - padding, maxDist + padding],
+      },
+      yaxis: {
+        title: { text: 'Полная энергия (Hartree)', font: { size: 14 } },
+        tickfont: { size: 12 },
+        gridcolor: 'var(--gray-200)',
+      },
+      plot_bgcolor: 'var(--bg-card)',
+      paper_bgcolor: 'var(--bg-body)',
+      margin: { t: 60, r: 40, b: 60, l: 60 },
+      hovermode: 'closest' as const,  // <-- as const для литерального типа
+      showlegend: true,
+      legend: {
+        x: 0.02,
+        y: 0.98,
+        bgcolor: 'rgba(255,255,255,0.8)',
+        bordercolor: 'var(--gray-200)',
+        borderwidth: 1,
+      },
+      annotations: isCompleted ? [{
+        x: minDistance,
+        y: Math.min(...sortedVQE),
+        text: `Min: ${minDistance.toFixed(4)} Å`,
+        showarrow: true,
+        arrowhead: 2,
+        ax: 0,
+        ay: -40,
+        bgcolor: 'rgba(255,255,255,0.9)',
+        bordercolor: 'var(--gray-500)',
+        borderwidth: 1,
+      }] : [],
+    };
+
+    return { data, layout };
+  }, [combinedResults, job]);
+
+  // Экспорт PNG через Plotly.downloadImage
+  const handleExportPNG = useCallback(() => {
+    const Plotly = (window as any).Plotly;
+    if (!Plotly?.downloadImage) {
+      console.error('Plotly.downloadImage not available');
+      return;
+    }
+    const graphDiv = plotRef.current?.el;
+    if (!graphDiv) return;
+
+    Plotly.downloadImage(graphDiv, {
+      format: 'png',
+      width: 1200,
+      height: 800,
+      filename: `pes-scan-${job?.molecule}-${job?.id}`,
+    });
+  }, [job?.molecule, job?.id]);
+
+  const handleExportData = useCallback(() => {
+    if (!job?.results) return;
+    const dataStr = JSON.stringify(job.results, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pes-scan-${job.molecule}-${job.id}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [job]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="spinner"></div>
-        <span className="ml-2 text-gray-600">Загрузка графика...</span>
+      <div className="flex items-center justify-center" style={{ height: '400px' }}>
+        <div className="spinner" />
+        <span className="ml-2" style={{ color: 'var(--gray-600)' }}>Загрузка графика...</span>
       </div>
     );
   }
@@ -194,8 +200,8 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
   if (error) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-600">Ошибка загрузки графика</p>
-        <p className="text-sm text-gray-500 mt-2">{error}</p>
+        <p style={{ color: 'var(--status-failed-text)' }}>Ошибка загрузки графика</p>
+        <p className="text-sm mt-2" style={{ color: 'var(--gray-500)' }}>{error}</p>
       </div>
     );
   }
@@ -203,46 +209,18 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
   if (!job) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">График недоступен</p>
+        <p style={{ color: 'var(--gray-500)' }}>График недоступен</p>
       </div>
     );
   }
 
-  if (!plotData) {
+  if (!plotConfig) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">Ожидание данных...</p>
+        <p style={{ color: 'var(--gray-500)' }}>Ожидание данных...</p>
       </div>
     );
   }
-
-  const handleExportPNG = () => {
-    if (plotRef.current) {
-      const plot = plotRef.current;
-      if (plot && plot.el) {
-        const gd = plot.el;
-        window.Plotly.downloadImage(gd, {
-          format: 'png',
-          width: 1200,
-          height: 800,
-          filename: `pes-scan-${job.molecule}-${job.id}`,
-        });
-      }
-    }
-  };
-
-  const handleExportData = () => {
-    if (job.results) {
-      const dataStr = JSON.stringify(job.results, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `pes-scan-${job.molecule}-${job.id}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    }
-  };
 
   return (
     <div className="relative">
@@ -251,8 +229,8 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
         <button
           onClick={handleExportPNG}
           className="export-btn"
-          disabled={!plotData}
-          title="Export chart as PNG"
+          disabled={!plotConfig}
+          title="Экспорт графика в PNG"
         >
           Экспорт PNG
         </button>
@@ -260,7 +238,7 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
           onClick={handleExportData}
           className="export-btn"
           disabled={!job?.results}
-          title={!job?.results ? 'No data available' : 'Export results as JSON'}
+          title={!job?.results ? 'Нет данных' : 'Экспорт результатов в JSON'}
         >
           Экспорт данных
         </button>
@@ -270,8 +248,8 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
       <div className="chart-container">
         <Plot
           ref={plotRef}
-          data={plotData.data}
-          layout={plotData.layout}
+          data={plotConfig.data}
+          layout={plotConfig.layout}
           config={{
             displayModeBar: true,
             displaylogo: false,

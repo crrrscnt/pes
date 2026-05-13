@@ -167,9 +167,9 @@ export default function AdminPage() {
   const jobsTotalPages = jobsData ? Math.ceil(jobsData.total / jobsData.per_page) : 1;
 
   return (
-    <div>
+    <div className="theme-frutiger container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Панель админа</h1>
+        <h1>Панель админа</h1>
       </div>
 
       {/* Tabs */}
