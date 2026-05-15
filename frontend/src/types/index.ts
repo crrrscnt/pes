@@ -8,11 +8,20 @@ export interface User {
   expert_request_date?: string;
 }
 
+export interface JobRoundResponse {
+  id: string;
+  arm_id: string;
+  round_number: number;
+  reward?: number | null;
+  avg_error_ha?: number | null;
+  context_vector?: number[] | null;
+  created_at: string;
+}
+
 export interface Job {
   id: string;
   user_id?: string;
   molecule: string;
-  atom_name: string;
   optimizer: string;
   mapper: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
@@ -26,10 +35,8 @@ export interface Job {
   is_public: boolean;
   precision_multiplier: number;
   preview_image?: string;
-  // LinUCB поля
   use_linucb?: boolean;
-  linucb_arm_id?: string;
-  linucb_reward?: number;
+  rounds?: JobRoundResponse[];
 }
 
 export interface JobListResponse {
@@ -101,17 +108,6 @@ export interface ExpertRequest {
   status: string;
 }
 
-export const MOLECULE_PARAMS = {
-  H2: { name: 'H₂', atom: 'H' },
-  LiH: { name: 'LiH', atom: 'Li' },
-  BH: { name: 'BH', atom: 'B' },
-  BeH: { name: 'BeH', atom: 'Be' },
-  CH: { name: 'CH', atom: 'C' },
-  NH: { name: 'NH', atom: 'N' },
-  OH: { name: 'OH', atom: 'O' },
-  FH: { name: 'FH', atom: 'F' },
-} as const;
-
 export const OPTIMIZER_TOOLTIPS = {
   SLSQP: 'SLSQP - градиентный оптимизатор, быстро сходится для гладких задач; хорош при строгих ограничениях, даёт малое время и точную локальную оптимизацию.',
   COBYLA: 'COBYLA - безградиентный оптимизатор, устойчив к неточным оценкам градиента; медленнее, но полезен при шумных функциях.',
@@ -128,7 +124,7 @@ export const OPTIMIZERS = ['SLSQP', 'COBYLA', 'SPSA'] as const;
 
 export const MAPPERS = ['JordanWigner', 'BravyiKitaev', 'Parity'] as const;
 
-export type MoleculeType = keyof typeof MOLECULE_PARAMS;
+export type MoleculeType = string; // Теперь любая строка, не ограничена
 export type OptimizerType = typeof OPTIMIZERS[number];
 export type MapperType = typeof MAPPERS[number];
 
@@ -140,4 +136,3 @@ export interface LinUCBArmStats {
   avg_reward: number | null;
   total_reward: number;
 }
-
