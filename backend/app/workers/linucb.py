@@ -79,18 +79,25 @@ def _identity() -> List[List[float]]:
 def _zeros() -> List[float]:
     return np.zeros(CONTEXT_DIM).tolist()
 
-def compute_reward(vqe_energy: float, numpy_energy: float) -> float:
+def compute_reward_from_error(error_ha: float) -> float:
     """
-    Вычисляет награду из результатов VQE.
+    Вычисляет награду из абсолютной ошибки в Hartree.
 
-    r = 1 / (1 + |VQE - NumPy| * 1000)   ∈ (0, 1]
+    r = 1 / (1 + error_ha * 1000)   ∈ (0, 1]
 
     Формула нормирует ошибку в мЭх: при ошибке 0 мЭх → r=1.0,
     при 1 мЭх → r≈0.5, при 10 мЭх → r≈0.09.
     """
-    error_meh = abs(vqe_energy - numpy_energy) * 1000.0
+    error_meh = error_ha * 1000.0
     reward = 1.0 / (1.0 + error_meh)
     return float(reward)
+
+def compute_reward(vqe_energy: float, numpy_energy: float) -> float:
+    """
+    Вычисляет награду из результатов VQE.
+    """
+    error_ha = abs(vqe_energy - numpy_energy)
+    return compute_reward_from_error(error_ha)
 
 
 # ── Основные операции с БД ─────────────────────────────────────────────────

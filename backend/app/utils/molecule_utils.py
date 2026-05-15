@@ -2,7 +2,6 @@ import re
 from collections import OrderedDict
 from typing import Dict, List, Tuple, Optional
 
-# Полный список химических символов для проверки.
 ELEMENT_SYMBOLS = {
     'H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al',
     'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe',
@@ -15,8 +14,6 @@ ELEMENT_SYMBOLS = {
     'Es', 'Fm', 'Md', 'No', 'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds',
     'Rg', 'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og'
 }
-
-_SYMBOL_PATTERN = re.compile(r"^([A-Za-z]{1,2})(\d*)")
 
 
 def _normalize_symbol(raw_symbol: str) -> str:
@@ -67,10 +64,6 @@ def _parse_formula_recursive(formula: str, position: int = 0) -> Optional[List[T
 
 
 def parse_chemical_formula(raw: str) -> Dict[str, int]:
-    """Parse chemical formula and return element counts.
-
-    Supports case-insensitive input and normalizes symbols to standard casing.
-    """
     formula = raw.strip()
     if not formula:
         raise ValueError("Пустая формула молекулы")
@@ -114,6 +107,7 @@ def validate_two_atom_molecule(raw: str) -> str:
     total_atoms = sum(parse_chemical_formula(normalized).values())
     if total_atoms != 2:
         raise ValueError(
-            "Поддерживаются только двухатомные молекулы. Для более крупных молекул это пока в разработке."
+            "Поддерживаются только двухатомные молекулы. "
+            "Для более крупных молекул это пока в разработке."
         )
     return normalized

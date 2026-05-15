@@ -6,7 +6,6 @@ import os
 from .config import settings
 from .database import engine, Base
 from .routers import auth, jobs, admin, public
-from .routers.linucb import router_linucb
 
 import logging
 
@@ -39,7 +38,6 @@ app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(admin.router)
 app.include_router(public.router_public)
-app.include_router(router_linucb)
 
 # Serve frontend static files
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "..", "frontend",
@@ -47,14 +45,18 @@ frontend_path = os.path.join(os.path.dirname(__file__), "..", "..", "frontend",
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
-
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         """Serve frontend for all non-API routes"""
         if full_path.startswith("api/"):
             return {"error": "API endpoint not found"}
 
-        # Serve index.html for all frontend routes
+        # Try to serve static file directly (JS, CSS, images, etc.)
+        file_path = os.path.join(frontend_path, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+        # Fallback to index.html for SPA routes
         index_path = os.path.join(frontend_path, "index.html")
         if os.path.exists(index_path):
             return FileResponse(index_path)

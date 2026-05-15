@@ -1,13 +1,10 @@
 import bcrypt
-import redis
 import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from .config import settings
-
-# Redis client
-redis_client = redis.from_url(settings.redis_url, decode_responses=True)
+from .redis_client import redis_client
 
 
 def hash_password(password: str) -> str:

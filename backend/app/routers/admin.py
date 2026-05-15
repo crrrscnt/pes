@@ -20,19 +20,15 @@ async def list_users(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_admin)
 ):
-    """List all users (admin only)"""
     query = db.query(User)
 
-    # Apply filters
     if role_filter:
         query = query.filter(User.role == role_filter)
     if active_filter is not None:
         query = query.filter(User.is_active == active_filter)
 
-    # Get total count
     total = query.count()
 
-    # Apply pagination
     offset = (page - 1) * per_page
     users = query.order_by(User.created_at.desc()).offset(offset).limit(
         per_page).all()
@@ -54,8 +50,6 @@ async def get_user_jobs(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_admin)
 ):
-    """Get jobs for a specific user (admin only)"""
-    # Check if user exists
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -65,14 +59,11 @@ async def get_user_jobs(
 
     query = db.query(Job).filter(Job.user_id == user_id)
 
-    # Apply filters
     if status_filter:
         query = query.filter(Job.status == status_filter)
 
-    # Get total count
     total = query.count()
 
-    # Apply pagination
     offset = (page - 1) * per_page
     jobs = query.order_by(Job.created_at.desc()).offset(offset).limit(
         per_page).all()
@@ -92,7 +83,6 @@ async def update_user(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_admin)
 ):
-    """Update user (admin only)"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -100,9 +90,7 @@ async def update_user(
             detail="User not found"
         )
 
-    # Update fields
     if user_update.email is not None:
-        # Check if email is already taken by another user
         existing_user = db.query(User).filter(
             User.email == user_update.email,
             User.id != user_id
@@ -136,21 +124,17 @@ async def list_all_jobs(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_admin)
 ):
-    """List all jobs across all users (admin only)"""
     query = db.query(Job)
 
-    # Apply filters
     if status_filter:
         query = query.filter(Job.status == status_filter)
     if molecule_filter:
-        query = query.filter(Job.molecule == molecule_filter)
+        query = query.filter(Job.molecule_preset_id == molecule_filter)
     if user_filter:
         query = query.filter(Job.user_id == user_filter)
 
-    # Get total count
     total = query.count()
 
-    # Apply pagination
     offset = (page - 1) * per_page
     jobs = query.order_by(Job.created_at.desc()).offset(offset).limit(
         per_page).all()
@@ -169,7 +153,6 @@ async def delete_job(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_admin)
 ):
-    """Delete a job (admin only)"""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(
@@ -188,7 +171,6 @@ async def list_expert_requests(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_admin)
 ):
-    """List pending expert requests"""
     users = db.query(User).filter(
         User.expert_request_status == "pending"
     ).order_by(User.expert_request_date.desc()).all()
@@ -211,7 +193,6 @@ async def handle_expert_request(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_admin)
 ):
-    """Approve or reject expert request"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

@@ -4,11 +4,14 @@ from typing import Optional, List
 from rq import Queue
 from ..dependencies import get_current_user, get_optional_user, require_user
 from ..database import get_db, SessionLocal
-from ..models import User, Job, JobStatus
-from ..schemas import JobCreate, JobResponse, JobListResponse, MOLECULE_PARAMS, \
-    OPTIMIZERS, MAPPERS
+from ..models import User, Job, JobStatus, MoleculePreset
+from ..schemas import JobCreate, JobResponse, JobListResponse, OPTIMIZERS, MAPPERS
 from ..redis_client import get_redis
 from ..workers.pes_worker import run_pes_scan
+from ..utils.molecule_utils import (
+    normalize_formula, parse_chemical_formula,
+    get_total_atom_count, ELEMENT_SYMBOLS
+)
 import uuid
 import json
 import logging
@@ -18,28 +21,60 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+def get_or_create_preset(db: Session, canonical: str) -> MoleculePreset:
+    preset = db.query(MoleculePreset).filter(MoleculePreset.id == canonical).first()
+    if preset:
+        return preset
+    preset = MoleculePreset(
+        id=canonical,
+        name=canonical,
+        distance_min=0.5,
+        distance_max=2.0,
+        step=0.1,
+        reference_distance=1.25,  # (0.5 + 2.0) / 2
+    )
+    db.add(preset)
+    db.commit()
+    db.refresh(preset)
+    logger.info("Auto-created preset for %s", canonical)
+    return preset
+
+
 def validate_job_parameters(
         molecule: str,
-        atom_name: str,
         optimizer: str,
         mapper: str,
         precision_multiplier: int,
         user: User,
         use_linucb: bool = False,
+        db: Session = None,
 ):
-    """Validate job parameters based on user role"""
-    if molecule not in MOLECULE_PARAMS:
+    if db is None:
+        raise RuntimeError("db session required for validation")
+
+    try:
+        canonical = normalize_formula(molecule)
+        counts = parse_chemical_formula(canonical)
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid molecule. Must be one of: {list(MOLECULE_PARAMS.keys())}"
+            detail=f"Invalid molecule formula: {str(e)}"
         )
 
-    expected_molecule, expected_atom = MOLECULE_PARAMS[molecule]
-    if atom_name != expected_atom:
+    if get_total_atom_count(canonical) != 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid atom_name for {molecule}. Expected: {expected_atom}"
+            detail="Only diatomic molecules are supported"
         )
+
+    for element in counts.keys():
+        if element not in ELEMENT_SYMBOLS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported element: {element}"
+            )
+
+    get_or_create_preset(db, canonical)
 
     if precision_multiplier not in [1, 2]:
         raise HTTPException(
@@ -53,9 +88,8 @@ def validate_job_parameters(
             detail="2x precision is only available for expert users"
         )
 
-    # В режиме LinUCB optimizer/mapper выбираются автоматически — не валидируем
     if use_linucb:
-        return
+        return canonical
 
     if optimizer not in OPTIMIZERS:
         raise HTTPException(
@@ -76,32 +110,31 @@ def validate_job_parameters(
                 detail="Regular users must use default optimizer (SLSQP) and mapper (Parity)"
             )
 
+    return canonical
+
 
 @router.post("", response_model=JobResponse)
 async def create_job(
         job_data: JobCreate,
         db: Session = Depends(get_db),
-        current_user: User = Depends(require_user)  # Changed from get_optional_user to require_user!
+        current_user: User = Depends(require_user)
 ):
-    """Create a new PES scan job - requires authentication"""
-    validate_job_parameters(
+    canonical = validate_job_parameters(
         job_data.molecule,
-        job_data.atom_name,
         job_data.optimizer,
         job_data.mapper,
         job_data.precision_multiplier,
         current_user,
         use_linucb=job_data.use_linucb,
+        db=db,
     )
 
-    # В режиме LinUCB — mapper/optimizer будут выбраны воркером
     optimizer = job_data.optimizer if not job_data.use_linucb else "linucb_pending"
-    mapper    = job_data.mapper    if not job_data.use_linucb else "linucb_pending"
+    mapper = job_data.mapper if not job_data.use_linucb else "linucb_pending"
 
     job = Job(
         user_id=current_user.id,
-        molecule=job_data.molecule,
-        atom_name=job_data.atom_name,
+        molecule_preset_id=canonical,
         optimizer=optimizer,
         mapper=mapper,
         precision_multiplier=job_data.precision_multiplier,
@@ -114,7 +147,6 @@ async def create_job(
     db.commit()
     db.refresh(job)
 
-    # Enqueue job
     run_pes_scan.delay(str(job.id))
 
     return JobResponse.model_validate(job)
@@ -126,7 +158,6 @@ async def get_job(
         db: Session = Depends(get_db),
         current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Get job details"""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(
@@ -134,15 +165,11 @@ async def get_job(
             detail="Job not found"
         )
 
-    # Check access permissions
     if current_user and current_user.role == "admin":
-        # Admin can see all jobs
         pass
     elif current_user and job.user_id == current_user.id:
-        # User can see their own jobs
         pass
     else:
-        # No access for others (anonymous users can't create jobs anymore)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -158,28 +185,26 @@ async def list_jobs(
         status_filter: Optional[JobStatus] = Query(None),
         molecule_filter: Optional[str] = Query(None),
         db: Session = Depends(get_db),
-        current_user: User = Depends(require_user)  # Changed to require_user!
+        current_user: User = Depends(require_user)
 ):
-    """List jobs for current user - requires authentication"""
     query = db.query(Job)
 
-    # Filter by user (unless admin)
     if current_user.role != "admin":
         query = query.filter(Job.user_id == current_user.id)
 
-    # Apply filters
     if status_filter:
         query = query.filter(Job.status == status_filter)
     if molecule_filter:
-        query = query.filter(Job.molecule == molecule_filter)
+        try:
+            canonical = normalize_formula(molecule_filter)
+            query = query.filter(Job.molecule_preset_id == canonical)
+        except Exception:
+            pass
 
-    # Get total count
     total = query.count()
 
-    # Apply pagination
     offset = (page - 1) * per_page
-    jobs = query.order_by(Job.created_at.desc()).offset(offset).limit(
-        per_page).all()
+    jobs = query.order_by(Job.created_at.desc()).offset(offset).limit(per_page).all()
 
     return JobListResponse(
         jobs=[JobResponse.model_validate(job) for job in jobs],
@@ -196,7 +221,6 @@ async def upload_job_preview(
         db: Session = Depends(get_db),
         current_user: User = Depends(require_user)
 ):
-    """Upload a custom cover image for a completed job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(
@@ -246,12 +270,9 @@ async def stream_job_progress(
         current_user: Optional[User] = Depends(get_optional_user),
         request: Request = None,
 ):
-    """Stream job progress via Server-Sent Events"""
     import asyncio
     from fastapi.responses import StreamingResponse
-    import json
 
-    # Check job exists and user has access
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(
@@ -259,16 +280,13 @@ async def stream_job_progress(
             detail="Job not found"
         )
 
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info(
-        f"Access check: job.user_id={job.user_id} ({type(job.user_id)}), "
-        f"current_user.id={getattr(current_user, 'id', None)} "
-        f"({type(getattr(current_user, 'id', None))}), "
-        f"current_user.role={getattr(current_user, 'role', None)}"
+        "Access check: job.user_id=%s, current_user.id=%s, current_user.role=%s",
+        job.user_id,
+        getattr(current_user, 'id', None),
+        getattr(current_user, 'role', None)
     )
 
-    # Check access permissions
     if current_user and current_user.role == "admin":
         pass
     elif current_user and job.user_id == current_user.id:
@@ -280,15 +298,16 @@ async def stream_job_progress(
         )
 
     async def event_generator():
-        """Yield Server-Sent Events for job updates."""
-        logger = logging.getLogger(__name__)
         redis = get_redis()
-
-        logger.info(f"Starting SSE stream for job {job_id}")
+        logger.info("Starting SSE stream for job %s", job_id)
 
         try:
             while True:
                 try:
+                    if request is not None and await request.is_disconnected():
+                        logger.info("Client disconnected from stream for job %s", job_id)
+                        break
+
                     with SessionLocal() as session:
                         job_fresh = session.query(Job).filter(
                             Job.id == job_id).first()
@@ -310,15 +329,13 @@ async def stream_job_progress(
                             "job_metadata": job_fresh.job_metadata if job_fresh.status == JobStatus.COMPLETED else None,
                         }
 
-                        # Send partial results
                         redis_key = f"job:{job_id}:partial_results"
                         partial_results = []
-
-                        while True:
-                            result_json = redis.rpop(redis_key)
-                            if not result_json:
-                                break
-                            partial_results.append(json.loads(result_json))
+                        result_json_list = redis.lrange(redis_key, 0, -1)
+                        if result_json_list:
+                            for result_json in result_json_list:
+                                partial_results.append(json.loads(result_json))
+                            redis.ltrim(redis_key, len(result_json_list), -1)
 
                         if partial_results:
                             job_dict["partial_results"] = partial_results
@@ -338,7 +355,6 @@ async def stream_job_progress(
 
                 await asyncio.sleep(4)
 
-            # Final fetch
             try:
                 with SessionLocal() as session:
                     job_latest = session.query(Job).filter(
@@ -357,10 +373,10 @@ async def stream_job_progress(
                         }
                         yield f"data: {json.dumps(final_dict)}\n\n"
             except Exception:
-                logger.exception(f"Final fetch failed for job {job_id}")
+                logger.exception("Final fetch failed for job %s", job_id)
 
         finally:
-            logger.info(f"Ending SSE stream for job {job_id}")
+            logger.info("Ending SSE stream for job %s", job_id)
             return
 
     return StreamingResponse(

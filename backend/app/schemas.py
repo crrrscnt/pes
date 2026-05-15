@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from .models import UserRole, JobStatus
@@ -28,12 +28,6 @@ class UserResponse(UserBase):
     is_active: bool
     expert_request_status: str
     expert_request_date: Optional[datetime] = None
-
-    # class Config:
-    #     from_attributes = True
-    # Pydantic v2 uses `model_config`; keep a v2-compatible config in addition to v1 Config
-    # so that editor/linters expecting v2 style will see it. This allows attribute-based
-    # population (formerly from_orm).
     model_config = {"from_attributes": True}
 
 
@@ -63,22 +57,31 @@ class RegisterResponse(BaseModel):
     message: str = "Registration successful"
 
 
+# JobRound schema
+class JobRoundResponse(BaseModel):
+    id: uuid.UUID
+    arm_id: str
+    round_number: int
+    reward: Optional[float] = None
+    avg_error_ha: Optional[float] = None
+    context_vector: Optional[List[float]] = None
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
 # Job schemas
 class JobCreate(BaseModel):
     molecule: str
-    atom_name: str
-    optimizer: str
-    mapper: str
+    optimizer: str = "SLSQP"
+    mapper: str = "Parity"
     precision_multiplier: int = 1
-    # LinUCB: если True, optimizer и mapper выбираются автоматически
     use_linucb: bool = False
 
 
 class JobResponse(BaseModel):
     id: uuid.UUID
     user_id: Optional[uuid.UUID]
-    molecule: str
-    atom_name: str
+    molecule: str = Field(validation_alias="molecule_preset_id")
     optimizer: str
     mapper: str
     status: JobStatus
@@ -92,14 +95,8 @@ class JobResponse(BaseModel):
     is_public: bool
     precision_multiplier: int
     preview_image: Optional[str]
-    # LinUCB поля (только если use_linucb=True)
     use_linucb: bool = False
-    linucb_arm_id: Optional[str] = None
-    linucb_reward: Optional[float] = None
-
-    # class Config:
-    #     from_attributes = True
-    # See note above for v2-compatible configuration
+    rounds: Optional[List[JobRoundResponse]] = None
     model_config = {"from_attributes": True}
 
 
@@ -119,8 +116,7 @@ class UserListResponse(BaseModel):
 
 
 class ExpertRequestCreate(BaseModel):
-    """Запрос на получение статуса expert"""
-    pass  # Пустой, ID берется из current_user
+    pass
 
 
 class ExpertRequestResponse(BaseModel):
@@ -128,26 +124,13 @@ class ExpertRequestResponse(BaseModel):
     email: str
     request_date: datetime
     status: str
-
     model_config = {"from_attributes": True}
 
 
 class ExpertRequestUpdate(BaseModel):
-    """Одобрение/отклонение запроса админом"""
     action: str
 
 
-# Molecule configuration
-MOLECULE_PARAMS = {
-    "H2": ("H2", "H"),
-    "LiH": ("LiH", "Li"),
-    "BH": ("BH", "B"),
-    "BeH": ("BeH", "Be"),
-    "CH": ("CH", "C"),
-    "NH": ("NH", "N"),
-    "OH": ("OH", "O"),
-    "FH": ("FH", "F"),
-}
-
+# Constants for validation
 OPTIMIZERS = ["SLSQP", "COBYLA", "SPSA"]
 MAPPERS = ["JordanWigner", "BravyiKitaev", "Parity"]

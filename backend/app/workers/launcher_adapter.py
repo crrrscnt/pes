@@ -4,6 +4,7 @@ import logging
 from time import time
 from typing import Dict, Any, Callable, Optional, List, Tuple
 from .worker import compute_single_point
+from ..utils.molecule_utils import parse_chemical_formula
 
 logger = logging.getLogger(__name__)
 
@@ -11,19 +12,23 @@ logger = logging.getLogger(__name__)
 def worker_wrapper(args: Tuple[float, str, str, str, int]) -> Tuple[
         float, Dict[str, Any]]:
     """
-    Wrapper for compute_single_point.
-    Catches exceptions and returns them as part of the result dict.
+    args: (distance, optimizer, mapper, molecule_preset_id, ansatz_reps)
     """
-    distance, optimizer, mapper, atom_name, ansatz_reps = args
+    distance, optimizer, mapper, molecule_preset_id, ansatz_reps = args
     try:
-        result = compute_single_point(distance, optimizer, mapper, atom_name,
-                                      ansatz_reps)
+        counts = parse_chemical_formula(molecule_preset_id)
+        atoms = list(counts.keys())
+        if len(atoms) != 2:
+            raise ValueError(f"Expected diatomic molecule, got {atoms}")
+        atom_a, atom_b = atoms[0], atoms[1]
+        result = compute_single_point(distance, optimizer, mapper,
+                                      atom_a, atom_b, ansatz_reps)
         return distance, result
     except Exception as e:
         tb = traceback.format_exc()
         error_msg = f"{type(e).__name__}: {str(e)}"
-        logger.error("Error computing point at %.3f A: %s\n%s", distance,
-                     error_msg, tb)
+        logger.error("Error computing point at %.3f A: %s\n%s",
+                     distance, error_msg, tb)
         return distance, {"error": error_msg, "traceback": tb}
 
 
@@ -57,82 +62,71 @@ def find_minimum(results: Dict[float, Dict[str, Any]]) -> Optional[float]:
 
 
 def recompute_point(distance: float, optimizer: str, mapper: str,
-                    atom_name: str, attempts: int = 1,
+                    molecule_preset_id: str, attempts: int = 1,
                     extra_ansatz_reps: bool = False) -> Optional[Dict[str, Any]]:
     candidates = []
     for _ in range(attempts):
-        _, res = worker_wrapper((distance, optimizer, mapper, atom_name, 1))
+        _, res = worker_wrapper((distance, optimizer, mapper,
+                                 molecule_preset_id, 1))
         if "error" not in res and "vqe" in res:
             candidates.append(res)
     if extra_ansatz_reps:
-        _, res = worker_wrapper((distance, optimizer, mapper, atom_name, 2))
+        _, res = worker_wrapper((distance, optimizer, mapper,
+                                 molecule_preset_id, 2))
         if "error" not in res and "vqe" in res:
             candidates.append(res)
     return min(candidates, key=lambda r: r["vqe"]) if candidates else None
 
 
 def run_scan(
-        molecule: str,
-        atom_name: str,
+        molecule_preset_id: str,
         optimizer: str,
         mapper: str,
-        step: float = 0.1,
+        distance_min: float,
+        distance_max: float,
+        step: float,
         precision_multiplier: int = 1,
         progress_callback: Optional[
             Callable[[int, str, Optional[Dict]], None]] = None,
 ) -> Dict[str, Any]:
     """
-    Выполняет PES-скан ПОСЛЕДОВАТЕЛЬНО (без mp.Pool).
-
-    mp.Pool внутри RQ-воркера порождает вложенные subprocesses,
-    которые убиваются watchdog-ом (AbandonedJobError).
-    Sequential-режим полностью стабилен.
-    Параллелизм между разными job-ами обеспечивается replicas RQ-воркеров.
+    Выполняет PES-скан ПОСЛЕДОВАТЕЛЬНО.
+    Параметры скана берутся из MoleculePreset (передаются явно).
     """
     start_time = time()
     actual_step = step / precision_multiplier
 
-    logger.info("Sequential PES scan: %s %s/%s step=%.3f",
-                molecule, mapper, optimizer, actual_step)
+    logger.info("Sequential PES scan: %s %s/%s step=%.3f range=[%.3f, %.3f]",
+                molecule_preset_id, mapper, optimizer,
+                actual_step, distance_min, distance_max)
 
-    MOLECULE_DISTANCES = {
-        "H2":  np.arange(0.4, 1.2, actual_step),
-        "LiH": np.arange(1.2, 2.0, actual_step),
-        "BH":  np.arange(1.0, 1.8, actual_step),
-        "BeH": np.arange(1.0, 1.8, actual_step),
-        "CH":  np.arange(0.6, 1.4, actual_step),
-        "NH":  np.arange(0.6, 1.4, actual_step),
-        "OH":  np.arange(0.6, 1.4, actual_step),
-        "FH":  np.arange(0.6, 1.4, actual_step),
-    }
-
-    distances = [float(d) for d in MOLECULE_DISTANCES.get(molecule, [])]
+    distances = [float(d) for d in np.arange(distance_min, distance_max, actual_step)]
     if not distances:
         raise ValueError(
-            f"Unknown molecule: {molecule}. "
-            f"Supported: {list(MOLECULE_DISTANCES.keys())}"
+            f"Empty distance range for {molecule_preset_id}: "
+            f"min={distance_min}, max={distance_max}, step={actual_step}"
         )
 
     results: Dict[float, Dict[str, Any]] = {}
 
     if progress_callback:
         progress_callback(5,
-                          f"Начало скана {molecule} ({mapper}/{optimizer}), "
+                          f"Начало скана {molecule_preset_id} ({mapper}/{optimizer}), "
                           f"{len(distances)} точек")
 
-    # ── Шаг 1: Основной скан ─────────────────────────────────────────────
     total = len(distances)
     for i, d in enumerate(distances):
-        distance, result = worker_wrapper((d, optimizer, mapper, atom_name, 1))
+        distance, result = worker_wrapper((d, optimizer, mapper,
+                                           molecule_preset_id, 1))
         results[distance] = result
         if progress_callback:
-            pct = 10 + int((i + 1) / total * 35)  # 10→45%
+            pct = 10 + int((i + 1) / total * 35)
             if "error" not in result:
                 partial = {
-                    "distance":          float(distance),
-                    "vqe":               float(result["vqe"]),
-                    "numpy":             float(result["numpy"]),
-                    "total_points":      total,
+                    "distance": float(distance),
+                    "vqe": float(result["vqe"]),
+                    "numpy": float(result["numpy"]),
+                    "total_points": total,
                     "calculated_points": i + 1,
                 }
                 progress_callback(pct,
@@ -143,7 +137,6 @@ def run_scan(
                                   f"Точка {i+1}/{total}: {distance:.3f} A [ОШИБКА]",
                                   None)
 
-    # ── Шаг 2: Минимум ───────────────────────────────────────────────────
     min_distance = find_minimum(results)
     if min_distance is None:
         logger.error("No successful results from main scan.")
@@ -157,28 +150,25 @@ def run_scan(
         progress_callback(48,
                           f"Основной скан завершён. Минимум: {min_distance:.4f} A")
 
-    # ── Шаг 3: Пики → перерасчёт ─────────────────────────────────────────
     peaks_main = detect_peaks(results)
     if peaks_main:
         if progress_callback:
             progress_callback(50,
                               f"Найдено {len(peaks_main)} пиков. Перерасчёт...")
         for idx, p in enumerate(peaks_main):
-            new_res = recompute_point(p, optimizer, mapper, atom_name)
+            new_res = recompute_point(p, optimizer, mapper, molecule_preset_id)
             if new_res:
                 results[p] = new_res
             if progress_callback:
-                pct = 50 + int((idx + 1) / len(peaks_main) * 10)  # 50→60%
+                pct = 50 + int((idx + 1) / len(peaks_main) * 10)
                 progress_callback(pct,
                                   f"Пик {idx+1}/{len(peaks_main)}: {p:.3f} A")
 
-    # ── Шаг 4: Уточнённый минимум ────────────────────────────────────────
     min_distance = find_minimum(results) or min_distance
     if progress_callback:
         progress_callback(65,
                           f"Пики пересчитаны. Минимум: {min_distance:.4f} A")
 
-    # ── Шаг 5: Refinement step/2 вокруг минимума ─────────────────────────
     half_step = step / 2.0
     refine_points = [
         d for d in [round(min_distance - half_step, 12),
@@ -189,31 +179,30 @@ def run_scan(
         if progress_callback:
             progress_callback(70, "Уточнение вокруг минимума (шаг/2)...")
         for idx, d in enumerate(refine_points):
-            dist, res = worker_wrapper((d, optimizer, mapper, atom_name, 1))
+            dist, res = worker_wrapper((d, optimizer, mapper,
+                                        molecule_preset_id, 1))
             results[dist] = res
             if progress_callback:
-                pct = 70 + int((idx + 1) / len(refine_points) * 10)  # 70→80%
+                pct = 70 + int((idx + 1) / len(refine_points) * 10)
                 progress_callback(pct,
                                   f"Уточнение {idx+1}/{len(refine_points)}: {d:.3f} A")
 
-    # ── Шаг 6: Пики после уточнения → перерасчёт ─────────────────────────
     peaks_final = detect_peaks(results)
     if peaks_final:
         if progress_callback:
             progress_callback(85,
                               f"{len(peaks_final)} пиков после уточнения...")
         for idx, p in enumerate(peaks_final):
-            new_res = recompute_point(p, optimizer, mapper, atom_name)
+            new_res = recompute_point(p, optimizer, mapper, molecule_preset_id)
             if new_res:
                 results[p] = new_res
             if progress_callback:
-                pct = 85 + int((idx + 1) / len(peaks_final) * 10)  # 85→95%
+                pct = 85 + int((idx + 1) / len(peaks_final) * 10)
                 progress_callback(pct,
                                   f"Финальный пик {idx+1}/{len(peaks_final)}: {p:.3f} A")
 
-    # ── Шаг 7: Итог ──────────────────────────────────────────────────────
     min_final = find_minimum(results) or min_distance
-    elapsed   = time() - start_time
+    elapsed = time() - start_time
     successful = sum(1 for r in results.values() if "error" not in r)
     scan_status = "completed" if successful > 0 else "failed"
 
@@ -229,9 +218,9 @@ def run_scan(
         )
 
     return {
-        "results":      results,
+        "results": results,
         "min_distance": min_final,
-        "peaks":        peaks_final,
+        "peaks": peaks_final,
         "elapsed_time": elapsed,
-        "status":       scan_status,
+        "status": scan_status,
     }
