@@ -65,7 +65,6 @@ export interface RegisterRequest {
 
 export interface JobCreate {
   molecule: string;
-  atom_name: string;
   optimizer: string;
   mapper: string;
   precision_multiplier?: number;
