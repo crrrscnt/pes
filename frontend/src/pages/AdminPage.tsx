@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { adminApi, linucbApi, authApi } from '../api/endpoints';
-import { Users, Settings, Trash2, Eye, UserCheck, BarChart3 } from 'lucide-react';
+import { adminApi, authApi } from '../api/endpoints';
+import { Users, Settings, Trash2, Eye, UserCheck } from 'lucide-react';
 import type {
   User,
   Job,

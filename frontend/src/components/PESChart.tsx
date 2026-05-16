@@ -13,10 +13,14 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
   const plotRef = useRef<any>(null);
 
   // Объединяем финальные + промежуточные результаты
+  // ИСПРАВЛЕНИЕ: partialResults используются ВСЕГДА, если job еще не completed
+  // Для публичных заданий (галерея) они обычно пустые, т.к. SSE не подключается
   const combinedResults = useMemo(() => {
     const results: Record<string, any> = {};
 
-    if (!isPublic) {
+    // Добавляем partial results ТОЛЬКО если job еще выполняется
+    // или если это приватное задание (isPublic=false)
+    if (!isPublic || job?.status === 'running') {
       partialResults.forEach(pr => {
         results[pr.distance.toString()] = {
           vqe: pr.vqe,
@@ -26,6 +30,7 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
       });
     }
 
+    // Финальные результаты перезаписывают partial (они точнее)
     if (job?.results) {
       Object.entries(job.results).forEach(([dist, result]) => {
         results[dist] = result;
@@ -33,7 +38,7 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
     }
 
     return results;
-  }, [job?.results, partialResults, isPublic]);
+  }, [job?.results, partialResults, isPublic, job?.status]);
 
   // Вычисляем конфигурацию графика синхронно через useMemo
   const plotConfig = useMemo(() => {
@@ -50,7 +55,7 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
 
     Object.entries(combinedResults).forEach(([distanceStr, result]) => {
       const distance = parseFloat(distanceStr);
-      if ('error' in result) return;
+      if (typeof result === 'object' && 'error' in result) return;
       distances.push(distance);
       vqeEnergies.push(result.vqe);
       numpyEnergies.push(result.numpy);
@@ -112,7 +117,6 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
       });
     }
 
-    // Типизируем layout как Partial<Layout> чтобы избежать ошибок TS
     const layout: Partial<Layout> = {
       title: {
         text: `${job.molecule} Кривая диссоциации (ПЭП-скан)${!isCompleted ? ' (В процессе)' : ''}`,
@@ -132,7 +136,7 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
       plot_bgcolor: 'var(--bg-card)',
       paper_bgcolor: 'var(--bg-body)',
       margin: { t: 60, r: 40, b: 60, l: 60 },
-      hovermode: 'closest' as const,  // <-- as const для литерального типа
+      hovermode: 'closest' as const,
       showlegend: true,
       legend: {
         x: 0.02,
@@ -218,6 +222,11 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
     return (
       <div className="text-center py-12">
         <p style={{ color: 'var(--gray-500)' }}>Ожидание данных...</p>
+        {job.status === 'running' && partialResults.length > 0 && (
+          <p className="text-sm mt-2" style={{ color: 'var(--gray-400)' }}>
+            Получено {partialResults.length} промежуточных точек...
+          </p>
+        )}
       </div>
     );
   }
@@ -265,6 +274,14 @@ export default function PESChart({ jobId, isPublic = false }: PESChartProps) {
           style={{ width: '100%', height: '100%' }}
         />
       </div>
+
+      {/* Индикатор промежуточных результатов */}
+      {job.status === 'running' && partialResults.length > 0 && (
+        <div className="mt-2 text-xs text-center" style={{ color: 'var(--gray-500)' }}>
+          Отображено {Object.keys(combinedResults).length} точек 
+          ({partialResults.length} промежуточных)
+        </div>
+      )}
     </div>
   );
 }

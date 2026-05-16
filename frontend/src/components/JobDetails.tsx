@@ -11,7 +11,7 @@ interface JobDetailsProps {
 
 export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps) {
   const { user } = useAuth();
-  const { job, loading, error, setJob } = useJobStatus(jobId, { isPublic });
+  const { job, partialResults, loading, error, setJob } = useJobStatus(jobId, { isPublic });
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -162,9 +162,17 @@ export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps)
   };
 
   const meta         = job.job_metadata;
-  const roundHistory = meta?.round_history as any[] | undefined;
   const finalErrHa   = meta?.final_avg_error_ha as number | undefined;
   const roundsDone   = meta?.rounds_completed as number | undefined;
+
+  // ИСПРАВЛЕНИЕ: отображаем актуальные значения из job
+  // Если LinUCB ещё выбирает — показываем "выбирается…", иначе реальное значение
+  const displayOptimizer = job.optimizer === 'linucb_pending'
+    ? 'выбирается…'
+    : job.optimizer;
+  const displayMapper = job.mapper === 'linucb_pending'
+    ? 'выбирается…'
+    : job.mapper;
 
   return (
     <div className="space-y-4">
@@ -178,20 +186,22 @@ export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps)
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">Оптимизатор:</span>
-            <span className="font-medium">
-              {job.optimizer === 'linucb_pending' ? 'выбирается…' : job.optimizer}
-            </span>
+            <span className="font-medium">{displayOptimizer}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">Мэппер:</span>
-            <span className="font-medium">
-              {job.mapper === 'linucb_pending' ? 'выбирается…' : job.mapper}
-            </span>
+            <span className="font-medium">{displayMapper}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">Создано:</span>
             <span className="font-medium">{fmt(job.created_at)}</span>
           </div>
+          {job.use_linucb && (
+            <div className="flex justify-between">
+              <span className="text-gray-600">Режим:</span>
+              <span className="font-medium text-violet-700">LinUCB (авто-выбор)</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -264,6 +274,11 @@ export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps)
               <div className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                    style={{ width: `${job.progress}%` }} />
             </div>
+            {partialResults.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                Получено {partialResults.length} промежуточных точек
+              </p>
+            )}
           </div>
         )}
 
@@ -306,10 +321,32 @@ export default function JobDetails({ jobId, isPublic = false }: JobDetailsProps)
                 </span>
               </div>
             )}
+            {job.rounds && job.rounds.length > 0 && (
+              <div className="bg-gray-50 rounded-lg p-4 mt-4">
+                <h3 className="font-medium text-gray-900 mb-3">Раунды LinUCB</h3>
+                <div className="space-y-2 text-sm">
+                  {job.rounds.map((round) => (
+                    <div key={round.id} className="flex justify-between items-center p-2 bg-white rounded border">
+                      <span>Раунд {round.round_number}: <strong>{round.arm_id}</strong></span>
+                      <span className="text-gray-600">
+                        reward: {round.reward?.toFixed(4) ?? '—'}, 
+                        error: {round.avg_error_ha ? `${(round.avg_error_ha * 1000).toFixed(2)} мГа` : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {meta.elapsed_time != null && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Время:</span>
                 <span className="font-medium">{Number(meta.elapsed_time).toFixed(1)}s</span>
+              </div>
+            )}
+            {meta.peaks && Array.isArray(meta.peaks) && meta.peaks.length > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Пики:</span>
+                <span className="font-medium">{meta.peaks.map((p: number) => `${Number(p).toFixed(3)} Å`).join(', ')}</span>
               </div>
             )}
           </div>

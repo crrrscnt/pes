@@ -17,9 +17,13 @@ def worker_wrapper(args: Tuple[float, str, str, str, int]) -> Tuple[
     distance, optimizer, mapper, molecule_preset_id, ansatz_reps = args
     try:
         counts = parse_chemical_formula(molecule_preset_id)
-        atoms = list(counts.keys())
+        # Разворачиваем формулу в список индивидуальных атомов
+        atoms: List[str] = []
+        for symbol, count in counts.items():
+            atoms.extend([symbol] * count)
+        
         if len(atoms) != 2:
-            raise ValueError(f"Expected diatomic molecule, got {atoms}")
+            raise ValueError(f"Expected diatomic molecule, got {atoms} from formula {molecule_preset_id}")
         atom_a, atom_b = atoms[0], atoms[1]
         result = compute_single_point(distance, optimizer, mapper,
                                       atom_a, atom_b, ansatz_reps)

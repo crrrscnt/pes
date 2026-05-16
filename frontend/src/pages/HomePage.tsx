@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Menu, X, ChevronLeft, ChevronRight, FlaskConical } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import MoleculeForm from '../components/MoleculeForm';
@@ -11,7 +11,8 @@ import type { OptimizerType, MapperType } from '../types';
 
 export default function HomePage() {
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [currentJobId, setCurrentJobId] = useState<string | null>(searchParams.get('job'));
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
@@ -24,8 +25,7 @@ export default function HomePage() {
     [user?.role]
   );
 
-  // Подсказка показывается ТОЛЬКО экспертам и админам — обычным пользователям не нужна,
-  // т.к. они не могут менять гиперпараметры (LinUCB выбирает за них)
+  // Подсказка показывается ТОЛЬКО экспертам и админам
   useEffect(() => {
     if (!isExpertOrAdmin) {
       setQuickTipText('');
@@ -33,6 +33,12 @@ export default function HomePage() {
     }
     setQuickTipText('Настройте параметры сканирования квантовой химии ниже');
   }, [isExpertOrAdmin]);
+
+  // КЛЮЧЕВОЕ: при смене jobId — обновляем URL
+  const handleJobCreated = useCallback((jobId: string) => {
+    setCurrentJobId(jobId);
+    setSearchParams({ job: jobId });
+  }, [setSearchParams]);
 
   // Синхронизация с URL (?job=...)
   useEffect(() => {
@@ -133,7 +139,7 @@ export default function HomePage() {
 
           <MoleculeForm
             user={user}
-            onJobCreated={setCurrentJobId}
+            onJobCreated={handleJobCreated}
             onOptimizerChange={handleOptimizerChange}
             onMapperChange={handleMapperChange}
           />
@@ -148,6 +154,7 @@ export default function HomePage() {
                     className="recent-scan-item"
                     onClick={() => {
                       setCurrentJobId(job.id);
+                      setSearchParams({ job: job.id });
                       if (isMobile) setSidebarOpen(false);
                     }}
                   >

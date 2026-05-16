@@ -4,19 +4,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Settings } from 'lucide-react';
 import { jobsApi, authApi } from '../api/endpoints';
-import { MOLECULE_PARAMS, OPTIMIZERS, MAPPERS } from '../types';
-import type { User, MoleculeType, OptimizerType, MapperType } from '../types';
-
-const VALID_MOLECULES = Object.keys(MOLECULE_PARAMS) as MoleculeType[];
+import { OPTIMIZERS, MAPPERS } from '../types';
+import type { User, OptimizerType, MapperType } from '../types';
 
 const formSchema = z.object({
-  molecule: z.string().refine(
-    (v) => VALID_MOLECULES.includes(v as MoleculeType),
-    { message: `Допустимые молекулы: ${VALID_MOLECULES.join(', ')}` }
-  ),
-  atom_name:            z.string().min(1),
-  optimizer:            z.string().min(1),
-  mapper:               z.string().min(1),
+  molecule: z.string().min(1, 'Введите формулу молекулы'),
+  optimizer:            z.string(),
+  mapper:               z.string(),
   precision_multiplier: z.number().int().min(1).max(2),
   use_linucb:           z.boolean(),
 });
@@ -52,7 +46,6 @@ export default function MoleculeForm({
     resolver: zodResolver(formSchema),
     defaultValues: {
       molecule:             'H2',
-      atom_name:            'H',
       optimizer:            'SLSQP',
       mapper:               'Parity',
       precision_multiplier: 1,
@@ -62,13 +55,6 @@ export default function MoleculeForm({
 
   const precisionMultiplier = watch('precision_multiplier');
   const useLinUCB           = watch('use_linucb');
-  const moleculeValue       = watch('molecule');
-
-  const handleMoleculeInput = (raw: string) => {
-    setValue('molecule', raw.trim());
-    const params = MOLECULE_PARAMS[raw.trim() as MoleculeType];
-    if (params) setValue('atom_name', params.atom);
-  };
 
   const onSubmit = async (data: FormData) => {
     if (!user) { setError('Войдите, чтобы запустить расчёты'); return; }
@@ -77,7 +63,6 @@ export default function MoleculeForm({
     try {
       const response = await jobsApi.create({
         molecule:             data.molecule,
-        atom_name:            data.atom_name,
         optimizer:            data.optimizer,
         mapper:               data.mapper,
         precision_multiplier: data.precision_multiplier,
@@ -112,23 +97,18 @@ export default function MoleculeForm({
         </div>
       )}
 
-      {/* ── Молекула: текстовый ввод с datalist ── */}
       <div className="form-group">
         <label htmlFor="molecule" className="form-label">Молекула</label>
-        <datalist id="molecule-list">
-          {VALID_MOLECULES.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
         <input
           {...register('molecule')}
           id="molecule"
-          list="molecule-list"
-          placeholder="H2, LiH, BH, BeH, CH, NH, OH, FH"
+          placeholder="H2, LiH, CO, N2, HF..."
           className="form-input w-full"
           autoComplete="off"
-          onChange={(e) => handleMoleculeInput(e.target.value)}
         />
+        <p className="mt-1 text-xs text-gray-500">
+          Введите формулу двухатомной молекулы. Примеры: H₂, CO, N₂, NaCl.
+        </p>
         {errors.molecule && (
           <p className="mt-1 text-xs text-red-600">{errors.molecule.message}</p>
         )}

@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { jobsApi, publicApi } from '../api/endpoints';
 import type { Job, PartialResult } from '../types';
 
 interface UseJobStatusOptions {
-  isPublic?: boolean; // Флаг для использования публичного API
+  isPublic?: boolean;
 }
+
+type JobStatus = Job['status'];
+
+const FINAL_STATUSES: JobStatus[] = ['completed', 'failed'];
 
 export function useJobStatus(jobId: string | null, options: UseJobStatusOptions = {}) {
   const { isPublic = false } = options;
@@ -13,108 +17,137 @@ export function useJobStatus(jobId: string | null, options: UseJobStatusOptions 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const staleRef = useRef(false);
+
+  // Cleanup SSE on unmount or jobId change
+  const closeEventSource = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!jobId) {
       setJob(null);
       setPartialResults([]);
+      setError(null);
+      closeEventSource();
       return;
     }
 
-    setPartialResults([]);  // Очистить старые результаты
-    setLoading(true);
+    staleRef.current = false;
+    setPartialResults([]);
     setError(null);
+    setLoading(true);
 
-    // Get initial job status
-    const fetchJob = isPublic
-      ? publicApi.getJob(jobId)
-      : jobsApi.get(jobId);
-
-    fetchJob
-      .then(response => {
-        setJob(response.data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
-
-    // Set up SSE stream только для приватного режима
-    // В публичном режиме SSE не поддерживается, используются только финальные результаты
-    if (!isPublic) {
-      let eventSource: EventSource | null = null;
+    // Initial fetch
+    const fetchJob = async () => {
       try {
-        eventSource = jobsApi.stream(jobId);
+        const api = isPublic ? publicApi.getJob(jobId) : jobsApi.get(jobId);
+        const response = await api;
+        if (!staleRef.current) {
+          setJob(response.data);
+        }
+      } catch (err: any) {
+        if (!staleRef.current) {
+          setError(err.message || 'Failed to fetch job');
+        }
+      } finally {
+        if (!staleRef.current) {
+          setLoading(false);
+        }
+      }
+    };
 
-        eventSource.onmessage = (event) => {
+    fetchJob();
+
+    // SSE only for private jobs
+    if (!isPublic) {
+      try {
+        const es = jobsApi.stream(jobId);
+        eventSourceRef.current = es;
+
+        es.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
 
-            // Обновить job status
-            setJob(prevJob => ({
-              ...prevJob,
-              ...data,
-              id: data.id || prevJob?.id,
-              user_id: prevJob?.user_id,
-              molecule: prevJob?.molecule,
-              atom_name: prevJob?.atom_name,
-              optimizer: prevJob?.optimizer,
-              mapper: prevJob?.mapper,
-              is_public: prevJob?.is_public,
-              precision_multiplier: prevJob?.precision_multiplier,
-              results: data.results || prevJob?.results,
-              job_metadata: data.job_metadata || prevJob?.job_metadata,
-              preview_image: prevJob?.preview_image,
-            } as Job));
+            setJob((prev) => {
+              if (!prev) return prev;
 
-            if (data.partial_results && Array.isArray(data.partial_results)) {
-              setPartialResults(prev => [...prev, ...data.partial_results]);
+              // ИСПРАВЛЕНИЕ: явно обновляем optimizer/mapper из SSE
+              // Если пришли реальные значения (не linucb_pending) — применяем
+              const newOptimizer = data.optimizer !== undefined && data.optimizer !== 'linucb_pending' 
+                ? data.optimizer 
+                : prev.optimizer;
+              const newMapper = data.mapper !== undefined && data.mapper !== 'linucb_pending'
+                ? data.mapper
+                : prev.mapper;
+
+              return {
+                ...prev,
+                ...data,
+                id: data.id || prev.id,
+                user_id: prev.user_id,
+                molecule: data.molecule || prev.molecule,
+                optimizer: newOptimizer,
+                mapper: newMapper,
+                status: data.status || prev.status,
+                progress: data.progress ?? prev.progress,
+                results: data.results || prev.results,
+                job_metadata: data.job_metadata || prev.job_metadata,
+                preview_image: data.preview_image || prev.preview_image,
+                use_linucb: data.use_linucb ?? prev.use_linucb,
+                error_message: data.error_message ?? prev.error_message,
+              };
+            });
+
+            if (data.partial_results?.length) {
+              setPartialResults((prev) => [...prev, ...data.partial_results]);
             }
 
-            if (data.status === 'completed' || data.status === 'failed') {
-              try {
-                eventSource?.close();
-              } catch (e) {
-                /* ignore */
-              }
+            // ИСПРАВЛЕНИЕ: после завершения делаем force-refresh для гарантии
+            if (FINAL_STATUSES.includes(data.status)) {
+              closeEventSource();
+              // Небольшая задержка для гарантии записи в БД, затем HTTP-запрос
+              setTimeout(() => {
+                if (!staleRef.current) {
+                  jobsApi.get(jobId).then(resp => {
+                    if (!staleRef.current) {
+                      setJob(prev => prev ? { ...prev, ...resp.data } : resp.data);
+                    }
+                  }).catch(() => {});
+                }
+              }, 500);
             }
           } catch (err) {
-            console.error('Error parsing SSE data:', err);
+            console.error('SSE parse error:', err);
           }
         };
 
-        eventSource.onerror = async (err) => {
-          console.error('SSE error:', err);
-          // Try a single GET to obtain final job state before declaring connection lost.
+        es.onerror = async () => {
+          closeEventSource();
+          if (staleRef.current) return;
+
           try {
             const resp = await jobsApi.get(jobId);
-            setJob(resp.data);
+            if (!staleRef.current) setJob(resp.data);
           } catch (e) {
-            console.error('Failed to fetch job after SSE error:', e);
-            setError('Connection lost');
-          } finally {
-            // Close the connection to prevent the browser from continuously reconnecting
-            try {
-              eventSource?.close();
-            } catch (e) {
-              /* ignore */
-            }
-          }
-        };
-
-        return () => {
-          try {
-            eventSource?.close();
-          } catch (e) {
-            /* ignore */
+            if (!staleRef.current) setError('Connection lost');
           }
         };
       } catch (e) {
-        console.error('Failed to create EventSource:', e);
+        console.error('SSE init failed:', e);
         setError('Connection failed');
       }
     }
-  }, [jobId, isPublic]);
+
+    return () => {
+      staleRef.current = true;
+      closeEventSource();
+    };
+  }, [jobId, isPublic, closeEventSource]);
 
   return { job, partialResults, loading, error, setJob };
 }

@@ -18,8 +18,8 @@ def extract_context(molecule_preset_id: str, db: Session) -> np.ndarray:
     Иначе запускает PySCF HF и кэширует результат.
     """
     from ..models import MoleculePreset
-    from ..utils.molecule_utils import parse_chemical_formula
-    from ..worker import build_problem
+    from ..utils.molecule_utils import parse_chemical_formula, get_total_atom_count
+    from .worker import build_problem
 
     preset = db.query(MoleculePreset).filter(
         MoleculePreset.id == molecule_preset_id
@@ -36,9 +36,20 @@ def extract_context(molecule_preset_id: str, db: Session) -> np.ndarray:
 
     try:
         counts = parse_chemical_formula(molecule_preset_id)
-        atoms = list(counts.keys())
+
+        # ПРОВЕРКА: молекула должна быть диатомной (всего 2 атома)
+        total_atoms = get_total_atom_count(molecule_preset_id)
+        if total_atoms != 2:
+            raise ValueError(f"Only diatomic molecules supported, got {total_atoms} atoms")
+
+        # Разворачиваем формулу в список индивидуальных атомов
+        atoms: list[str] = []
+        for symbol, count in counts.items():
+            atoms.extend([symbol] * count)
+
         if len(atoms) != 2:
-            raise ValueError(f"Only diatomic molecules supported, got {atoms}")
+            raise ValueError(f"Expected 2 atoms, got {len(atoms)}: {atoms}")
+
         atom_a, atom_b = atoms[0], atoms[1]
 
         problem = build_problem(distance, atom_a, atom_b)

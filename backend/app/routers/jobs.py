@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from rq import Queue
 from ..dependencies import get_current_user, get_optional_user, require_user
 from ..database import get_db, SessionLocal
 from ..models import User, Job, JobStatus, MoleculePreset
@@ -15,7 +14,6 @@ from ..utils.molecule_utils import (
 import uuid
 import json
 import logging
-import base64
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -31,7 +29,7 @@ def get_or_create_preset(db: Session, canonical: str) -> MoleculePreset:
         distance_min=0.5,
         distance_max=2.0,
         step=0.1,
-        reference_distance=1.25,  # (0.5 + 2.0) / 2
+        reference_distance=1.25,
     )
     db.add(preset)
     db.commit()
@@ -254,6 +252,7 @@ async def upload_job_preview(
             detail="Image size must be 2MB or less"
         )
 
+    import base64
     encoded = base64.b64encode(content).decode('utf-8')
     job.preview_image = f"data:{image.content_type};base64,{encoded}"
     db.add(job)
@@ -317,6 +316,7 @@ async def stream_job_progress(
                             yield f"data: {json.dumps(payload)}\n\n"
                             break
 
+                        # ИСПРАВЛЕНИЕ: добавлены optimizer и mapper в SSE-ответ
                         job_dict = {
                             "id": str(job_fresh.id),
                             "status": job_fresh.status,
@@ -327,6 +327,9 @@ async def stream_job_progress(
                             "completed_at": job_fresh.completed_at.isoformat() if job_fresh.completed_at else None,
                             "results": job_fresh.results if job_fresh.status == JobStatus.COMPLETED else None,
                             "job_metadata": job_fresh.job_metadata if job_fresh.status == JobStatus.COMPLETED else None,
+                            "optimizer": job_fresh.optimizer,  # ← ДОБАВЛЕНО
+                            "mapper": job_fresh.mapper,        # ← ДОБАВЛЕНО
+                            "molecule": job_fresh.molecule_preset_id,  # ← ДОБАВЛЕНО для совместимости
                         }
 
                         redis_key = f"job:{job_id}:partial_results"
@@ -360,6 +363,7 @@ async def stream_job_progress(
                     job_latest = session.query(Job).filter(
                         Job.id == job_id).first()
                     if job_latest:
+                        # ИСПРАВЛЕНИЕ: финальный пакет тоже содержит optimizer/mapper
                         final_dict = {
                             "id": str(job_latest.id),
                             "status": job_latest.status,
@@ -370,6 +374,9 @@ async def stream_job_progress(
                             "completed_at": job_latest.completed_at.isoformat() if job_latest.completed_at else None,
                             "results": job_latest.results,
                             "job_metadata": job_latest.job_metadata,
+                            "optimizer": job_latest.optimizer,  # ← ДОБАВЛЕНО
+                            "mapper": job_latest.mapper,        # ← ДОБАВЛЕНО
+                            "molecule": job_latest.molecule_preset_id,  # ← ДОБАВЛЕНО
                         }
                         yield f"data: {json.dumps(final_dict)}\n\n"
             except Exception:

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional
 from ..dependencies import get_current_user, get_optional_user
-from ..database import get_db, SessionLocal
+from ..database import get_db
 from ..models import User, Job, JobStatus
 from ..schemas import JobResponse, JobListResponse
 

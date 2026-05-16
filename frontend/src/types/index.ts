@@ -8,7 +8,7 @@ export interface User {
   expert_request_date?: string;
 }
 
-export interface JobRoundResponse {
+export interface JobRound {
   id: string;
   arm_id: string;
   round_number: number;
@@ -36,7 +36,7 @@ export interface Job {
   precision_multiplier: number;
   preview_image?: string;
   use_linucb?: boolean;
-  rounds?: JobRoundResponse[];
+  rounds?: JobRound[];
 }
 
 export interface JobListResponse {
@@ -123,7 +123,6 @@ export const OPTIMIZERS = ['SLSQP', 'COBYLA', 'SPSA'] as const;
 
 export const MAPPERS = ['JordanWigner', 'BravyiKitaev', 'Parity'] as const;
 
-export type MoleculeType = string; // Теперь любая строка, не ограничена
 export type OptimizerType = typeof OPTIMIZERS[number];
 export type MapperType = typeof MAPPERS[number];
 

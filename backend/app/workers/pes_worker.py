@@ -51,6 +51,7 @@ def _merge_results(best: Dict, new: Dict) -> Dict:
 @job('pes_queue', connection=redis_client, timeout='4h')
 def run_pes_scan(job_id: str):
     try:
+        # ── 1. Загрузить job и preset, извлечь ПРИМИТИВЫ ───────────────────
         with SessionLocal() as db:
             db_job = db.query(Job).filter(Job.id == job_id).first()
             if not db_job:
@@ -75,12 +76,19 @@ def run_pes_scan(job_id: str):
                 db.commit()
                 return
 
+            # === КЛЮЧЕВОЕ: сохраняем примитивы ПЕРЕД закрытием сессии ===
+            preset_distance_min = float(preset.distance_min)
+            preset_distance_max = float(preset.distance_max)
+            preset_step = float(preset.step)
+            preset_reference_distance = float(preset.reference_distance)
+
             db_job.status = JobStatus.RUNNING
             db_job.progress = 0
             db.commit()
             logger.info("Job %s started: %s use_linucb=%s",
                         job_id, molecule_preset_id, use_linucb_flag)
 
+        # ── 2. Извлечь контекст для LinUCB (новая сессия) ──────────────────
         linucb_context_list = None
         if use_linucb_flag:
             with SessionLocal() as db:
@@ -88,6 +96,7 @@ def run_pes_scan(job_id: str):
                 linucb_context_list = x.tolist()
                 logger.info("[Job %s] context: %s", job_id, linucb_context_list)
 
+        # ── 3. Прогресс-колбэк ─────────────────────────────────────────────
         def progress_callback(progress: int, message: str,
                               partial_result: Optional[Dict] = None):
             try:
@@ -104,16 +113,20 @@ def run_pes_scan(job_id: str):
             except Exception as e:
                 logger.error("Progress callback error %s: %s", job_id, e)
 
+        # ── 4. Многораундовый цикл ─────────────────────────────────────────
         n_rounds = MAX_ROUNDS if use_linucb_flag else 1
         best_results: Dict = {}
         last_arm_id = None
         last_mapper = stored_mapper
         last_optimizer = stored_optimizer
+        total_elapsed_time = 0.0
+        all_peaks = []
 
         for round_idx in range(n_rounds):
             round_num = round_idx + 1
             logger.info("[Job %s] Round %d/%d", job_id, round_num, n_rounds)
 
+            # 4a. LinUCB выбирает руку
             if use_linucb_flag:
                 x_arr = context_extractor._list_to_array(linucb_context_list)
                 with SessionLocal() as db:
@@ -138,6 +151,7 @@ def run_pes_scan(job_id: str):
                 actual_mapper = stored_mapper
                 actual_optimizer = stored_optimizer
 
+            # 4b. Смещаем прогресс-окно на раунд
             round_offset = int((round_idx / n_rounds) * 90)
             round_span = int(90 / n_rounds)
 
@@ -146,13 +160,14 @@ def run_pes_scan(job_id: str):
                 prefix = f"[Раунд {round_num}/{n_rounds}] " if use_linucb_flag else ""
                 progress_callback(global_pct, prefix + msg, partial)
 
+            # 4c. Скан — ИСПОЛЬЗУЕМ СОХРАНЁННЫЕ ПРИМИТИВЫ =====================
             scan_result = run_scan(
                 molecule_preset_id=molecule_preset_id,
                 optimizer=actual_optimizer,
                 mapper=actual_mapper,
-                distance_min=preset.distance_min,
-                distance_max=preset.distance_max,
-                step=preset.step,
+                distance_min=preset_distance_min,      # ← ЛОКАЛЬНАЯ ПЕРЕМЕННАЯ
+                distance_max=preset_distance_max,      # ← ЛОКАЛЬНАЯ ПЕРЕМЕННАЯ
+                step=preset_step,                      # ← ЛОКАЛЬНАЯ ПЕРЕМЕННАЯ
                 precision_multiplier=precision_mult,
                 progress_callback=round_progress,
             )
@@ -160,10 +175,17 @@ def run_pes_scan(job_id: str):
             round_results = scan_result.get("results", {})
             best_results = _merge_results(best_results, round_results)
 
+            # Накопление elapsed_time и peaks из всех раундов
+            if scan_result.get("elapsed_time"):
+                total_elapsed_time += scan_result["elapsed_time"]
+            if scan_result.get("peaks"):
+                all_peaks.extend(scan_result["peaks"])
+
             avg_err = _avg_error(best_results)
             reward = linucb.compute_reward_from_error(avg_err) \
                 if avg_err is not None else 0.0
 
+            # 4d. Сохранить JobRound
             with SessionLocal() as db:
                 job_round = JobRound(
                     job_id=job_id,
@@ -180,6 +202,7 @@ def run_pes_scan(job_id: str):
                         job_id, round_num,
                         avg_err if avg_err else 0, reward)
 
+            # 4e. LinUCB: обновить модель
             if use_linucb_flag and linucb_context_list and last_arm_id:
                 x_arr = context_extractor._list_to_array(linucb_context_list)
                 with SessionLocal() as db:
@@ -189,6 +212,7 @@ def run_pes_scan(job_id: str):
                     )
                     db.commit()
 
+            # 4f. Проверка качества
             if avg_err is not None and avg_err < QUALITY_THRESHOLD:
                 logger.info(
                     "[Job %s] Quality OK (%.4f Ha < %.4f Ha). Stop after round %d.",
@@ -201,12 +225,14 @@ def run_pes_scan(job_id: str):
                     )
                 break
             elif round_num < n_rounds and use_linucb_flag:
+                avg_err_display = (avg_err * 1000) if avg_err is not None else 0.0
                 progress_callback(
                     round_offset + round_span,
-                    f"Раунд {round_num}: avg_error={avg_err*1000:.2f} мHa. "
+                    f"Раунд {round_num}: avg_error={avg_err_display:.2f} мHa. "
                     f"Запускаем раунд {round_num+1}…"
                 )
 
+        # ── 5. Сохранить финальные результаты ──────────────────────────────
         final_avg_err = _avg_error(best_results)
         successful = sum(1 for r in best_results.values() if "error" not in r)
 
@@ -216,11 +242,14 @@ def run_pes_scan(job_id: str):
                 logger.error("Job %s vanished.", job_id)
                 return
 
+            # Убираем дубликаты пиков и сортируем
+            unique_peaks = sorted(list(set(all_peaks)))
+
             db_job.results = best_results
             db_job.job_metadata = {
                 "min_distance": _find_min(best_results),
-                "peaks": [],
-                "elapsed_time": None,
+                "peaks": unique_peaks,                          # ← ИСПРАВЛЕНО: реальные пики
+                "elapsed_time": round(total_elapsed_time, 2) if total_elapsed_time > 0 else None,  # ← ИСПРАВЛЕНО: реальное время
                 "total_points": len(best_results),
                 "successful_points": successful,
                 "mapper": last_mapper,
